@@ -10,8 +10,12 @@ local function finite(value)
 end
 
 local function component(vector, key)
-    if type(vector) ~= 'table' and type(vector) ~= 'userdata' then return nil end
-    local value = vector[key]
+    if vector == nil then return nil end
+    -- Cfx exposes vector3 values as a dedicated Lua value type rather than a
+    -- table/userdata on some runtimes.  Read fields defensively so validation
+    -- remains compatible with both FiveM natives and offline table stubs.
+    local ok, value = pcall(function() return vector[key] end)
+    if not ok then return nil end
     return finite(value) and value or nil
 end
 
