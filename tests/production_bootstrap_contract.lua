@@ -1,5 +1,7 @@
 -- Offline contract for the root production resource and its stage gates.
 PortOps = {}
+local registeredCommands = {}
+RegisterCommand = function(name, handler) registeredCommands[name] = handler end
 dofile('shared/enums.lua')
 dofile('shared/errors.lua')
 dofile('shared/crane/constants.lua')
@@ -27,11 +29,17 @@ local bootstrap = assertf(runtime.bootstrap, 'bootstrap instance missing')
 assertf(bootstrap.ready, 'production bootstrap is not ready')
 assertf(bootstrap.stage == PortOps.Enums.ResourceStage.READY, 'resource stage did not reach READY')
 assertf(bootstrap.registry:get('qc-01'), 'default crane was not registered')
+assertf(registeredCommands.portops_status, 'development status command was not registered')
 
 local first = runtime.handleReserve(11, 'qc-01')
 assertf(first.ok and first.data.sessionId, 'first reserve failed')
+assertf(first.data.serverTime, 'reserve response did not include server time')
 local second = runtime.handleReserve(12, 'qc-01')
 assertf(not second.ok and second.error.code == 'CRANE_OCCUPIED', 'concurrent reserve was not rejected')
+local released = runtime.handleRelease(11, first.data.sessionId, first.data.sessionToken)
+assertf(released.ok and released.data.released, 'release response did not confirm release')
+first = runtime.handleReserve(11, 'qc-01')
+assertf(first.ok and first.data.sessionId, 'reserve after release failed')
 
 local notifications = {}
 TriggerClientEvent = function(eventName, target)

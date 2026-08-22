@@ -31,7 +31,12 @@ function Tokens.new(options)
         actions = options.actions or { attach = true, detach = true },
         clock = options.clock,
         sequence = 0,
+        maxActivePerSession = tonumber(options.maxActivePerSession) or 32,
+        maxIssuesPerWindow = tonumber(options.maxIssuesPerWindow) or 8,
+        issueWindowMs = tonumber(options.issueWindowMs) or 1000,
         active = {},
+        activeCount = {},
+        issueWindows = {},
         replayLog = options.replayLog or function() end
     }, Tokens)
 end
@@ -61,6 +66,39 @@ function Tokens:_now(value)
     return nowMs(self.clock and self.clock() or value)
 end
 
+function Tokens:_decrementActive(record)
+    if not record or not record.activeCounted then return end
+    local sessionKey = tostring(record.sessionId)
+    local count = (self.activeCount[sessionKey] or 1) - 1
+    self.activeCount[sessionKey] = count > 0 and count or nil
+    record.activeCounted = false
+end
+
+function Tokens:_remove(token)
+    local record = self.active[token]
+    if not record then return end
+    self:_decrementActive(record)
+    self.active[token] = nil
+end
+
+function Tokens:_pruneExpired(current)
+    for token, record in pairs(self.active) do
+        if record.expiresAt <= current then self:_remove(token) end
+    end
+end
+
+function Tokens:_allowIssue(sessionId, current)
+    local key = tostring(sessionId)
+    local window = self.issueWindows[key]
+    if not window or current - window.startedAt >= self.issueWindowMs then
+        window = { startedAt = current, count = 0 }
+        self.issueWindows[key] = window
+    end
+    if window.count >= self.maxIssuesPerWindow then return false end
+    window.count = window.count + 1
+    return true
+end
+
 function Tokens:issue(sessionAuthority, sessionId, craneId, containerId, action, source, operatorId, timestamp, sessionToken, targetId, profileVersion)
     if not sessionAuthority or not sessionAuthority.validate then return nil, 'SESSION_AUTHORITY_REQUIRED' end
     local ok, sessionOrReason = sessionAuthority:validate(sessionId, craneId, source, operatorId, timestamp, sessionToken)
@@ -72,6 +110,10 @@ function Tokens:issue(sessionAuthority, sessionId, craneId, containerId, action,
     profileVersion = canonicalVersion(rawProfileVersion)
     if rawProfileVersion ~= nil and profileVersion == nil then return nil, 'INVALID_TOKEN_BINDING' end
     local current = self:_now(timestamp)
+    self:_pruneExpired(current)
+    local sessionKey = tostring(sessionOrReason.id)
+    if (self.activeCount[sessionKey] or 0) >= self.maxActivePerSession then return nil, 'TOKEN_RATE_LIMITED' end
+    if not self:_allowIssue(sessionKey, current) then return nil, 'TOKEN_RATE_LIMITED' end
     self.sequence = self.sequence + 1
     local token
     repeat
@@ -82,8 +124,9 @@ function Tokens:issue(sessionAuthority, sessionId, craneId, containerId, action,
         containerId = tostring(containerId), action = tostring(action),
         targetId = tostring(targetId), profileVersion = profileVersion,
         source = sessionOrReason.source, operatorId = sessionOrReason.operatorId,
-        issuedAt = current, expiresAt = current + self.ttlMs, consumed = false
+        issuedAt = current, expiresAt = current + self.ttlMs, consumed = false, activeCounted = true
     }
+    self.activeCount[sessionKey] = (self.activeCount[sessionKey] or 0) + 1
     return token
 end
 
@@ -98,6 +141,7 @@ function Tokens:consume(token, sessionAuthority, sessionId, craneId, containerId
     if not record then self.replayLog({ reason = 'missing_or_replay' }); return false, 'TOKEN_INVALID' end
     if record.consumed then self.replayLog({ reason = 'replay', sessionId = record.sessionId, craneId = record.craneId }); return false, 'TOKEN_REPLAY' end
     if record.expiresAt <= current then
+        self:_decrementActive(record)
         record.consumed = true
         self.replayLog({ reason = 'expired', sessionId = record.sessionId, craneId = record.craneId })
         return false, 'TOKEN_EXPIRED'
@@ -113,6 +157,7 @@ function Tokens:consume(token, sessionAuthority, sessionId, craneId, containerId
         and record.source == tostring(source)
         and record.operatorId == tostring(operatorId)
     if not matches then self.replayLog({ reason = 'token_binding_mismatch', sessionId = record.sessionId, craneId = record.craneId }); return false, 'TOKEN_BINDING_MISMATCH' end
+    self:_decrementActive(record)
     record.consumed = true
     record.consumedAt = current
     return true, record
@@ -121,8 +166,10 @@ end
 function Tokens:invalidateSession(sessionId)
     local count = 0
     for token, record in pairs(self.active) do
-        if record.sessionId == tostring(sessionId) then self.active[token] = nil; count = count + 1 end
+        if record.sessionId == tostring(sessionId) then self:_remove(token); count = count + 1 end
     end
+    self.activeCount[tostring(sessionId)] = nil
+    self.issueWindows[tostring(sessionId)] = nil
     return count
 end
 

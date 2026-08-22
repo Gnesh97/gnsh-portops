@@ -23,6 +23,8 @@ assertf(not Server.accept(sync, 17, { craneId = 'crane-01', sessionId = 'session
 assertf(not Server.accept(sync, 17, { craneId = 'crane-01', sessionId = 'session-01', sequence = 1, timestamp = 1100, gantry = .5, trolley = .5, spreader = 1 }, 1100), 'late sequence accepted')
 assertf(not Server.accept(sync, 17, { craneId = 'crane-01', sessionId = 'session-01', sequence = 2, timestamp = 1100, gantry = 1, trolley = .5, spreader = 1 }, 1100), 'teleport snapshot accepted')
 assertf(not Server.accept(sync, 99, first, 1200), 'non-operator snapshot accepted')
+Server.setSession(sync, 'session-02')
+assertf(Server.accept(sync, 17, { craneId = 'crane-01', sessionId = 'session-02', sequence = 1, timestamp = 2000, gantry = .5, trolley = .5, spreader = 1, yaw = 0 }, 2000), 'new session sequence was not reset')
 
 local observer = Client.new({ interpolationDelayMs = 0, bufferSize = 4 })
 assertf(Client.push(observer, { sequence = 1, timestamp = 1000, gantry = 0, trolley = 0, spreader = 0, yaw = 0 }))

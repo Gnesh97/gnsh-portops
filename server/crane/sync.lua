@@ -32,6 +32,14 @@ function Sync.clearOperator(sync, source)
 end
 
 function Sync.setSession(sync, sessionId, craneId)
+    if sync.sessionId ~= sessionId then
+        -- Sequence and receive-time guards belong to one operator session. A
+        -- new client is allowed to start its local sequence at one again.
+        sync.lastSnapshot = nil
+        sync.lastReceivedMs = nil
+        sync.lastArrivalMs = {}
+        sync.arrivalWindow = {}
+    end
     sync.sessionId = sessionId
     sync.craneId = craneId or sync.craneId
     if sync.craneId then PortOps.Crane.SyncById[sync.craneId] = sync end

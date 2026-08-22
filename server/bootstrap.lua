@@ -162,6 +162,7 @@ function Bootstrap:handleReserve(source, craneId)
         craneId = craneId,
         sessionId = session.id,
         sessionToken = session.token,
+        serverTime = clockMs(),
         expiresAt = session.expiresAt,
         state = registryState
     })
@@ -180,7 +181,7 @@ function Bootstrap:handleRelease(source, sessionId, sessionToken)
         PortOps.Crane.ServerSync.clearOperator(sync, source)
         PortOps.Crane.ServerSync.setSession(sync, nil, sessionOrReason.craneId)
     end
-    return PortOps.Errors.ok({ craneId = sessionOrReason.craneId, sessionId = sessionId })
+    return PortOps.Errors.ok({ craneId = sessionOrReason.craneId, sessionId = sessionId, released = true })
 end
 
 function Bootstrap:handleSnapshot(source, craneId, snapshot)
@@ -355,7 +356,13 @@ function Bootstrap:run()
 
     self:_stage(PortOps.Enums.ResourceStage.SERVICES)
     self.sessions = Sessions.new({ ttlMs = self.config.crane.sessionTtlMs, onInvalidated = function(session, reason) self:_onSessionInvalidated(session, reason) end })
-    self.tokens = Tokens.new({ ttlMs = self.config.crane.actionTokenTtlMs, replayLog = function(event) if type(print) == 'function' and self.config.environment ~= 'production' then print(('[PortOps] token rejected: %s'):format(tostring(event.reason))) end end })
+    self.tokens = Tokens.new({
+        ttlMs = self.config.crane.actionTokenTtlMs,
+        maxActivePerSession = self.config.crane.actionTokenMaxActivePerSession,
+        maxIssuesPerWindow = self.config.crane.actionTokenMaxIssuesPerWindow,
+        issueWindowMs = self.config.crane.actionTokenIssueWindowMs,
+        replayLog = function(event) if type(print) == 'function' and self.config.environment ~= 'production' then print(('[PortOps] token rejected: %s'):format(tostring(event.reason))) end end
+    })
     self.recovery = Recovery.new({ registry = self.registry, sessions = self.sessions, tokens = self.tokens, notify = function(craneId, state, reason)
         for observerSource in pairs(self.observers[craneId] or {}) do
             if type(TriggerClientEvent) == 'function' then
@@ -407,6 +414,15 @@ function Bootstrap:run()
     PortOps.Crane.SessionAuthority = self.sessions
     PortOps.Crane.ActionTokenAuthority = self.tokens
     self:_registerEvents()
+    if self.config.environment == 'development' and type(RegisterCommand) == 'function' then
+        RegisterCommand('portops_status', function()
+            for craneId in pairs(self.registry.states) do
+                local state = self.registry:getState(craneId)
+                print(('[PortOps] stage=%s ready=%s crane=%s mode=%s version=%s recovery=%s'):format(
+                    tostring(self.stage), tostring(self.ready), craneId, tostring(state.mode), tostring(state.version), tostring(state.recoveryRequired)))
+            end
+        end, true)
+    end
     if type(print) == 'function' then print(('[PortOps] %s ready (%s)'):format(self.config.version, self.config.environment)) end
     return true, self
 end

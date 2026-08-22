@@ -52,7 +52,7 @@ function Security.validateConfig(config, features)
     if type(config.crane) ~= 'table' then
         invalid(errors, 'crane runtime config is required')
     else
-        for _, key in ipairs({ 'snapshotHz', 'snapshotBurst', 'burstWindowMs', 'maxPayloadKeys', 'futureSkewMs', 'maxSnapshotAgeMs', 'interpolationDelayMs', 'observerBufferSize', 'sessionTtlMs', 'actionTokenTtlMs' }) do
+        for _, key in ipairs({ 'snapshotHz', 'snapshotBurst', 'burstWindowMs', 'maxPayloadKeys', 'futureSkewMs', 'maxSnapshotAgeMs', 'interpolationDelayMs', 'observerBufferSize', 'sessionTtlMs', 'actionTokenTtlMs', 'actionTokenMaxActivePerSession', 'actionTokenMaxIssuesPerWindow', 'actionTokenIssueWindowMs' }) do
             if type(config.crane[key]) ~= 'number' or config.crane[key] <= 0 then invalid(errors, 'crane.' .. key .. ' must be positive') end
         end
     end

@@ -75,4 +75,16 @@ for _, event in ipairs(replayReasons) do
     assert(event ~= token and event ~= expiringToken, 'replay log must not contain raw token')
 end
 
+local limited = PortOpsCrane.ActionTokens.new({
+    ttlMs = 100,
+    maxActivePerSession = 2,
+    maxIssuesPerWindow = 2,
+    issueWindowMs = 1000,
+    clock = function() return time end
+})
+assert(limited:issue(sessions, active.id, 'qc-03', 'MSCU-L1', 'attach', 14, 'employee-14', time, active.token))
+assert(limited:issue(sessions, active.id, 'qc-03', 'MSCU-L2', 'attach', 14, 'employee-14', time, active.token))
+local limitedToken, limitedReason = limited:issue(sessions, active.id, 'qc-03', 'MSCU-L3', 'attach', 14, 'employee-14', time, active.token)
+assert(not limitedToken and limitedReason == 'TOKEN_RATE_LIMITED', 'active token limit was not enforced')
+
 print('Production crane sessions/action tokens contract: PASS')

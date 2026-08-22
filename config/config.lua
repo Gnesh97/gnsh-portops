@@ -46,6 +46,9 @@ PortOps.Config = {
         interpolationDelayMs = 100,
         observerBufferSize = 12,
         sessionTtlMs = 30000,
-        actionTokenTtlMs = 5000
+        actionTokenTtlMs = 5000,
+        actionTokenMaxActivePerSession = 32,
+        actionTokenMaxIssuesPerWindow = 8,
+        actionTokenIssueWindowMs = 1000
     }
 }

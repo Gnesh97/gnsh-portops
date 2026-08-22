@@ -15,10 +15,12 @@ All notable changes to PortOps are documented in this file.
 - Added PORT-020 crane session authority: atomic reserve, source/operator/session-token binding, release idempotency, expiry, and disconnect cleanup.
 - Added PORT-021/022 snapshot protocol and observer sync: finite normalized state validation, timestamp window, receive-time delta limits, rate/burst/payload guards, interpolation buffer, late discard, and scope re-entry resync.
 - Added PORT-023/024 short-lived action tokens and disconnect recovery: opaque random credentials, one-time consume, binding checks, replay-safe logs, canonical freeze, token/session invalidation, and observer recovery markers.
+- Added development-only live smoke commands for reserve, observe, snapshot, action-token issue/consume, release, and resource status checks.
+- Added session-bound snapshot guard reset, server-clock localization for client interpolation, and bounded action-token issue/active limits.
 
 ### Notes
 
 - The master development plan has been received and reviewed.
 - S01 remains a historical development-only client prototype and is excluded from the root production manifest.
 - Database persistence, framework adapters, container/yard/berth transitions, and visual crane controls remain explicitly deferred to their planned phases.
-- Root Lua syntax and offline contracts pass; FiveM runtime acceptance still requires ensuring the root resource in a test server.
+- Root Lua syntax and offline contracts pass; FiveM runtime acceptance now includes the live `READY` bootstrap log and the documented development smoke commands.
