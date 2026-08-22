@@ -10,14 +10,29 @@ PortOps is a FiveM container-terminal operations platform for QBCore, Qbox, and 
 - A completed release is promoted from `dev` to `main`.
 - `changelog.md` is updated for every development phase.
 
-The master and implementation plans have been reviewed. S00 technical research and crane contract documents are complete; implementation proceeds one sprint at a time on `dev` and stops at each exit gate.
+The master and implementation plans have been reviewed. S00 technical research is retained as the contract, while implementation now proceeds directly in the root production resource on `dev` and stops at each phase exit gate.
+
+## Production resource
+
+The root [`fxmanifest.lua`](fxmanifest.lua) is the active PortOps resource. It loads shared contracts, server-authoritative crane sessions/snapshots/action tokens, disconnect recovery, and the client observer interpolation path. The direct development profile uses an explicitly configured in-memory provider; database and framework adapters remain gated for later phases.
+
+The production bootstrap sequence is `CONFIG -> DB -> ADAPTERS -> SERVICES -> READY`. A malformed config or unsupported provider fails startup before network handlers are enabled. Snapshot broadcasts are sent only to registered observers, and the server never accepts client world coordinates as canonical state.
 
 ## S01 local crane prototype
 
-The framework-independent prototype lives under [`prototype/portops_crane`](prototype/portops_crane). It provides a profile-driven rig, frame-time controller, camera modes, alignment metrics, and local attach/detach debug commands. It is intentionally client-only and is not the production PortOps resource.
+The framework-independent prototype remains under [`prototype/portops_crane`](prototype/portops_crane) as the historical S01 commit. It provides a profile-driven rig, frame-time controller, camera modes, alignment metrics, and local attach/detach debug commands. It is intentionally client-only, excluded from the root manifest, and is not the production PortOps resource.
 
 Offline contract checks can be run with:
 
 ```powershell
 & 'C:\Users\Gnesh\AppData\Local\Programs\Lua\5.5.1\lua.exe' tests\prototype_crane_contract.lua
+```
+
+Production contracts can be run offline with:
+
+```powershell
+$lua = 'C:\Users\Gnesh\AppData\Local\Programs\Lua\5.5.1\lua.exe'
+& $lua tests\server_sessions_tokens_contract.lua
+& $lua tests\server_snapshot_sync_contract.lua
+& $lua tests\production_bootstrap_contract.lua
 ```
