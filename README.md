@@ -14,7 +14,7 @@ The master and implementation plans have been reviewed. S00 technical research i
 
 ## Production resource
 
-The root [`fxmanifest.lua`](fxmanifest.lua) is the active PortOps resource. It loads shared contracts, server-authoritative crane sessions/snapshots/action tokens, disconnect recovery, and the client observer interpolation path. The direct development profile uses an explicitly configured in-memory provider; database and framework adapters remain gated for later phases.
+The root [`fxmanifest.lua`](fxmanifest.lua) is the active PortOps resource. It loads shared contracts, server-authoritative crane sessions/snapshots/action tokens, disconnect recovery, and the client observer interpolation path. The direct development profile uses an explicitly configured in-memory provider; the normalized oxmysql and QBCore/Qbox/ESX/standalone adapter boundaries are wired for later persistence and gameplay services.
 
 The production bootstrap sequence is `CONFIG -> DB -> ADAPTERS -> SERVICES -> READY`. A malformed config or unsupported provider fails startup before network handlers are enabled. Snapshot broadcasts are sent only to registered observers, and the server never accepts client world coordinates as canonical state. Snapshot sequence guards reset per operator session, client interpolation localizes server timestamps, and action-token issuance is bounded per session/window.
 
@@ -38,4 +38,7 @@ $lua = 'C:\Users\Gnesh\AppData\Local\Programs\Lua\5.5.1\lua.exe'
 & $lua tests\server_snapshot_sync_contract.lua
 & $lua tests\production_bootstrap_contract.lua
 & $lua tests\client_bootstrap_contract.lua
+& $lua tests\core_utilities_contract.lua
+& $lua tests\database_migrations_contract.lua
+& $lua tests\framework_adapters_contract.lua
 ```

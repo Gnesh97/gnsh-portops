@@ -8,8 +8,16 @@ end
 PortOps.Config = {
     version = '0.1.0',
     environment = 'development',
+    logging = { level = 'info' },
     framework = { provider = 'standalone' },
-    database = { provider = 'memory', required = false },
+    database = {
+        provider = 'memory',
+        required = false,
+        migrations = {
+            { version = 1, path = 'sql/001_initial.sql' },
+            { version = 2, path = 'sql/002_indexes.sql' }
+        }
+    },
     defaults = {
         craneId = 'qc-01',
         yardId = 'yard-c',

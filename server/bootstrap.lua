@@ -3,6 +3,8 @@
 -- framework adapters.
 PortOps = PortOps or {}
 PortOps.Crane = PortOps.Crane or {}
+PortOps.Core = PortOps.Core or {}
+PortOps.Adapters = PortOps.Adapters or {}
 
 local Bootstrap = {}
 Bootstrap.__index = Bootstrap
@@ -22,6 +24,13 @@ local function clone(value)
     local result = {}
     for key, child in pairs(value) do result[key] = clone(child) end
     return result
+end
+
+local function reasonText(reason)
+    if type(reason) == 'table' and reason.error then
+        return ('%s: %s'):format(tostring(reason.error.code), tostring(reason.error.message))
+    end
+    return tostring(reason)
 end
 
 local function boundedSnapshot(snapshot, maxKeys)
@@ -66,9 +75,16 @@ end
 
 function Bootstrap.new(options)
     options = options or {}
+    local logger = options.logger
+    if not logger and PortOps.Core.Logger then logger = PortOps.Core.Logger.new({ category = 'portops' }) end
     return setmetatable({
         config = options.config or PortOps.Config,
         features = options.features or PortOps.Features,
+        logger = logger,
+        events = options.events,
+        database = nil,
+        migrations = nil,
+        framework = nil,
         stage = nil,
         ready = false,
         error = nil,
@@ -91,12 +107,34 @@ function Bootstrap:_fail(stage, reason)
     self:_stage(PortOps.Enums.ResourceStage.FAILED)
     self.ready = false
     self.error = { stage = stage, reason = reason }
-    if type(print) == 'function' then print(('[PortOps] startup failed at %s: %s'):format(stage, tostring(reason))) end
+    if self.database and self.database.close then pcall(self.database.close, self.database) end
+    if self.logger and self.logger.error then self.logger:error('startup failed', { stage = stage, reason = reason }) end
+    if type(print) == 'function' then print(('[PortOps] startup failed at %s: %s'):format(stage, reasonText(reason))) end
     return false, self.error
 end
 
+function Bootstrap:stop()
+    if self.events and self.events.emit then self.events:emit('portops:resource.stop', { version = self.config and self.config.version }) end
+    if self.database and self.database.close then self.database:close() end
+    self.ready = false
+    self.eventsRegistered = false
+    return true
+end
+
 function Bootstrap:_operatorId(source)
-    return 'standalone:' .. tostring(source)
+    local provider = self.framework and self.framework.provider or (self.config.framework and self.config.framework.provider)
+    if self.framework and type(self.framework.getIdentifier) == 'function' then
+        local ok, identifier = pcall(self.framework.getIdentifier, self.framework, source)
+        if ok and type(identifier) == 'string' and identifier ~= '' then return identifier end
+    end
+    if provider == 'standalone' or provider == nil then return 'standalone:' .. tostring(source) end
+    return nil
+end
+
+function Bootstrap:_operator(source)
+    local identifier = self:_operatorId(source)
+    if identifier then return identifier end
+    return nil, PortOps.Errors.err('FRAMEWORK_IDENTITY_UNAVAILABLE', 'framework identity is unavailable')
 end
 
 function Bootstrap:_reply(source, eventName, result)
@@ -143,10 +181,12 @@ end
 function Bootstrap:handleReserve(source, craneId)
     if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
     if not PortOps.Crane.Validation.requiredIdentifier(craneId, 64) then return PortOps.Errors.err('INPUT_INVALID', 'crane id is invalid') end
+    local operatorId, identityError = self:_operator(source)
+    if not operatorId then return identityError end
     local state = self.registry:get(craneId)
     if not state then return PortOps.Errors.err('CRANE_NOT_FOUND', 'crane does not exist') end
     if state.recoveryRequired or state.frozen then return PortOps.Errors.err('RECOVERY_REQUIRED', 'crane requires recovery') end
-    local session, reason = self.sessions:reserve(craneId, source, self:_operatorId(source), clockMs())
+    local session, reason = self.sessions:reserve(craneId, source, operatorId, clockMs())
     if not session then return PortOps.Errors.err(PortOps.Errors.code(reason, 'CRANE_OCCUPIED'), reason) end
     local ok, registryState = self.registry:reserve(craneId, session)
     if not ok then
@@ -171,7 +211,9 @@ end
 function Bootstrap:handleRelease(source, sessionId, sessionToken)
     if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
     if not PortOps.Crane.Validation.requiredIdentifier(sessionId, 128) or not PortOps.Crane.Validation.requiredIdentifier(sessionToken, 256) then return PortOps.Errors.err('INPUT_INVALID', 'session credential is invalid') end
-    local ok, sessionOrReason = self.sessions:validate(sessionId, nil, source, self:_operatorId(source), clockMs(), sessionToken)
+    local operatorId, identityError = self:_operator(source)
+    if not operatorId then return identityError end
+    local ok, sessionOrReason = self.sessions:validate(sessionId, nil, source, operatorId, clockMs(), sessionToken)
     if not ok then return PortOps.Errors.err(PortOps.Errors.code(sessionOrReason, 'SESSION_INVALID'), sessionOrReason) end
     local released, reason = self.sessions:release(sessionId, source, clockMs())
     if not released then return PortOps.Errors.err(PortOps.Errors.code(reason, 'SESSION_INVALID'), reason) end
@@ -188,10 +230,12 @@ function Bootstrap:handleSnapshot(source, craneId, snapshot)
     if not self.ready or type(snapshot) ~= 'table' then return PortOps.Errors.err('SNAPSHOT_INVALID', 'snapshot is invalid') end
     if not PortOps.Crane.Validation.requiredIdentifier(craneId, 64) then return PortOps.Errors.err('SNAPSHOT_INVALID', 'crane id is invalid') end
     if snapshot.version ~= PortOps.Crane.Protocol.VERSION then return PortOps.Errors.err('SNAPSHOT_INVALID', 'protocol version is invalid') end
+    local operatorId, identityError = self:_operator(source)
+    if not operatorId then return identityError end
     local sessionId = snapshot.sessionId
     local sessionToken = snapshot.sessionToken
     if not PortOps.Crane.Validation.requiredIdentifier(sessionId, 128) or not PortOps.Crane.Validation.requiredIdentifier(sessionToken, 256) then return PortOps.Errors.err('SESSION_INVALID', 'session credential is invalid') end
-    local valid, sessionOrReason = self.sessions:validate(sessionId, craneId, source, self:_operatorId(source), clockMs(), sessionToken)
+    local valid, sessionOrReason = self.sessions:validate(sessionId, craneId, source, operatorId, clockMs(), sessionToken)
     if not valid then return PortOps.Errors.err(PortOps.Errors.code(sessionOrReason, 'SESSION_INVALID'), sessionOrReason) end
     local state = self.registry:get(craneId)
     if not state or state.recoveryRequired or state.frozen then return PortOps.Errors.err('RECOVERY_REQUIRED', 'crane requires recovery') end
@@ -255,20 +299,24 @@ function Bootstrap:handleTokenIssue(source, craneId, sessionId, containerId, act
     if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
     if not PortOps.Crane.Validation.requiredIdentifier(craneId, 64) or not PortOps.Crane.Validation.requiredIdentifier(sessionId, 128) then return PortOps.Errors.err('INPUT_INVALID', 'token session binding is invalid') end
     if not PortOps.Crane.Validation.requiredIdentifier(sessionToken, 256) then return PortOps.Errors.err('INPUT_INVALID', 'session credential is invalid') end
+    local operatorId, identityError = self:_operator(source)
+    if not operatorId then return identityError end
     local profile = self.registry:getProfile(craneId)
     if not profile then return PortOps.Errors.err('CRANE_NOT_FOUND', 'crane does not exist') end
     targetId = targetId or containerId
-    local token, reason = self.tokens:issue(self.sessions, sessionId, craneId, containerId, action, source, self:_operatorId(source), clockMs(), sessionToken, targetId, profile.version)
+    local token, reason = self.tokens:issue(self.sessions, sessionId, craneId, containerId, action, source, operatorId, clockMs(), sessionToken, targetId, profile.version)
     if not token then return PortOps.Errors.err(PortOps.Errors.code(reason, 'TOKEN_INVALID'), reason) end
     return PortOps.Errors.ok({ token = token, targetId = targetId, profileVersion = profile.version, expiresAt = clockMs() + self.config.crane.actionTokenTtlMs })
 end
 
 function Bootstrap:handleTokenConsume(source, token, craneId, sessionId, containerId, action, sessionToken, targetId)
     if not PortOps.Crane.Validation.requiredIdentifier(token, 256) or not PortOps.Crane.Validation.requiredIdentifier(sessionToken, 256) then return PortOps.Errors.err('INPUT_INVALID', 'token credential is invalid') end
+    local operatorId, identityError = self:_operator(source)
+    if not operatorId then return identityError end
     local profile = self.registry:getProfile(craneId)
     if not profile then return PortOps.Errors.err('CRANE_NOT_FOUND', 'crane does not exist') end
     targetId = targetId or containerId
-    local consumed, recordOrReason = self.tokens:consume(token, self.sessions, sessionId, craneId, containerId, action, source, self:_operatorId(source), clockMs(), sessionToken, targetId, profile.version)
+    local consumed, recordOrReason = self.tokens:consume(token, self.sessions, sessionId, craneId, containerId, action, source, operatorId, clockMs(), sessionToken, targetId, profile.version)
     if not consumed then return PortOps.Errors.err(PortOps.Errors.code(recordOrReason, 'TOKEN_INVALID'), recordOrReason) end
     return PortOps.Errors.ok({ craneId = recordOrReason.craneId, sessionId = recordOrReason.sessionId, action = recordOrReason.action })
 end
@@ -333,26 +381,54 @@ function Bootstrap:_registerEvents()
     AddEventHandler('playerDropped', function()
         runtime.handleDisconnect(source)
     end)
+    AddEventHandler('onResourceStop', function(resourceName)
+        local current = type(GetCurrentResourceName) == 'function' and GetCurrentResourceName() or nil
+        if current and resourceName == current then self:stop() end
+    end)
 end
 
 function Bootstrap:run()
     self:_stage(PortOps.Enums.ResourceStage.CONFIG)
     local valid, validationErrors = PortOps.Security.Validation.validateConfig(self.config, self.features)
     if not valid then return self:_fail(PortOps.Enums.ResourceStage.CONFIG, table.concat(validationErrors, '; ')) end
+    if not self.logger and PortOps.Core.Logger then self.logger = PortOps.Core.Logger.new({ category = 'portops', level = self.config.logging and self.config.logging.level }) end
+    if not self.events and PortOps.Core.EventBus then self.events = PortOps.Core.EventBus.new({ logger = self.logger }) end
     local Registry = PortOps.Crane.Registry
     local Sessions = PortOps.Crane.Sessions
     local Tokens = PortOps.Crane.ActionTokens
     local ServerSync = PortOps.Crane.ServerSync
     local Recovery = PortOps.Crane.Recovery
-    if not Registry or not Sessions or not Tokens or not ServerSync or not Recovery then return self:_fail(PortOps.Enums.ResourceStage.SERVICES, 'required modules are missing') end
+    local Result = PortOps.Core.Result
+    local Migrations = PortOps.Core.Migrations
+    local Database = PortOps.Adapters.Database and PortOps.Adapters.Database.Interface
+    local Framework = PortOps.Adapters.Framework and PortOps.Adapters.Framework.Interface
+    if not Registry or not Sessions or not Tokens or not ServerSync or not Recovery or not Result or not Migrations or not Database or not Framework or not self.events then
+        return self:_fail(PortOps.Enums.ResourceStage.SERVICES, 'required modules are missing')
+    end
     local registry, registryReason = Registry.new(self.config)
     if not registry then return self:_fail(PortOps.Enums.ResourceStage.CONFIG, registryReason) end
     self.registry = registry
 
     self:_stage(PortOps.Enums.ResourceStage.DB)
-    if self.config.database.provider ~= 'memory' then return self:_fail(PortOps.Enums.ResourceStage.DB, 'only explicit memory provider is available in direct development') end
+    local database, databaseReason = Database.create(self.config.database)
+    if not database then return self:_fail(PortOps.Enums.ResourceStage.DB, databaseReason) end
+    local databaseValid, databaseValidationReason = Database.validate(database)
+    if not databaseValid then return self:_fail(PortOps.Enums.ResourceStage.DB, databaseValidationReason) end
+    self.database = database
+    local migrationRunner = Migrations.new({ database = database, migrations = self.config.database.migrations })
+    local migrationResult = migrationRunner:run()
+    if Result.isErr(migrationResult) then return self:_fail(PortOps.Enums.ResourceStage.DB, migrationResult) end
+    self.migrations = migrationRunner
+
     self:_stage(PortOps.Enums.ResourceStage.ADAPTERS)
-    if self.config.framework.provider ~= 'standalone' then return self:_fail(PortOps.Enums.ResourceStage.ADAPTERS, 'framework adapter is not enabled') end
+    local framework, frameworkReason = Framework.create(self.config.framework)
+    if not framework then return self:_fail(PortOps.Enums.ResourceStage.ADAPTERS, frameworkReason) end
+    local frameworkValid, frameworkValidationReason = Framework.validate(framework)
+    if not frameworkValid then return self:_fail(PortOps.Enums.ResourceStage.ADAPTERS, frameworkValidationReason) end
+    if framework.provider ~= 'standalone' and not framework:isAvailable() then
+        return self:_fail(PortOps.Enums.ResourceStage.ADAPTERS, 'FRAMEWORK_PROVIDER_UNAVAILABLE')
+    end
+    self.framework = framework
 
     self:_stage(PortOps.Enums.ResourceStage.SERVICES)
     self.sessions = Sessions.new({ ttlMs = self.config.crane.sessionTtlMs, onInvalidated = function(session, reason) self:_onSessionInvalidated(session, reason) end })
@@ -413,6 +489,12 @@ function Bootstrap:run()
     PortOps.Crane.RegistryInstance = self.registry
     PortOps.Crane.SessionAuthority = self.sessions
     PortOps.Crane.ActionTokenAuthority = self.tokens
+    PortOps.Runtime = PortOps.Runtime or {}
+    PortOps.Runtime.Database = self.database
+    PortOps.Runtime.Migrations = self.migrations
+    PortOps.Runtime.Framework = self.framework
+    PortOps.Runtime.Logger = self.logger
+    PortOps.Runtime.Events = self.events
     self:_registerEvents()
     if self.config.environment == 'development' and type(RegisterCommand) == 'function' then
         RegisterCommand('portops_status', function()
@@ -424,6 +506,7 @@ function Bootstrap:run()
         end, true)
     end
     if type(print) == 'function' then print(('[PortOps] %s ready (%s)'):format(self.config.version, self.config.environment)) end
+    self.events:emit('portops:resource.ready', { version = self.config.version, stage = self.stage })
     return true, self
 end
 

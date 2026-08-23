@@ -18,6 +18,8 @@ All notable changes to PortOps are documented in this file.
 - Added development-only live smoke commands for reserve, observe, snapshot, action-token issue/consume, release, and resource status checks.
 - Added session-bound snapshot guard reset, server-clock localization for client interpolation, and bounded action-token issue/active limits.
 - Fixed fallback session and action-token identifiers leaking Lua `table:` allocation formatting.
+- Added S03 production foundation contracts: idempotent memory/oxmysql migration boundary, normalized framework adapters, Result/Logger/EventBus utilities, and resource-stop cleanup.
+- Hardened S03 boundaries with Qbox validation, strict framework identity checks, credential-key log redaction, migration metadata validation, database failure cleanup, and real framework hook unsubscribe.
 
 ### Notes
 

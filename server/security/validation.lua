@@ -10,6 +10,35 @@ local function invalid(errors, message)
     errors[#errors + 1] = message
 end
 
+local function validateMigrations(migrations, errors)
+    if migrations == nil then return end
+    if type(migrations) ~= 'table' then
+        invalid(errors, 'database migrations must be a table')
+        return
+    end
+    local seen = {}
+    for index, migration in pairs(migrations) do
+        if type(index) ~= 'number' or index < 1 or index % 1 ~= 0 then
+            invalid(errors, 'database migration indexes must be positive integers')
+        end
+        if type(migration) ~= 'table' then
+            invalid(errors, ('database migration %s must be a table'):format(tostring(index)))
+        else
+            local version = migration.version
+            if type(version) ~= 'number' or version < 1 or version % 1 ~= 0 then
+                invalid(errors, ('database migration %s version must be a positive integer'):format(tostring(index)))
+            elseif seen[version] then
+                invalid(errors, ('database migration version is duplicated: %s'):format(tostring(version)))
+            else
+                seen[version] = true
+            end
+            if type(migration.path) ~= 'string' or migration.path == '' then
+                invalid(errors, ('database migration %s path is required'):format(tostring(index)))
+            end
+        end
+    end
+end
+
 function Security.validateConfig(config, features)
     local errors = {}
     if type(config) ~= 'table' then return false, { 'config must be a table' } end
@@ -17,14 +46,18 @@ function Security.validateConfig(config, features)
     if config.environment ~= 'development' and config.environment ~= 'staging' and config.environment ~= 'production' then
         invalid(errors, 'environment is invalid')
     end
+    if config.logging and (type(config.logging) ~= 'table' or (config.logging.level ~= nil and not ({ debug = true, info = true, warn = true, error = true })[config.logging.level])) then
+        invalid(errors, 'logging level is invalid')
+    end
     local frameworkProvider = config.framework and config.framework.provider
-    if frameworkProvider ~= 'standalone' and frameworkProvider ~= 'qbcore' and frameworkProvider ~= 'esx' then
+    if frameworkProvider ~= 'standalone' and frameworkProvider ~= 'qbcore' and frameworkProvider ~= 'qbox' and frameworkProvider ~= 'esx' then
         invalid(errors, 'framework provider is invalid')
     end
     local databaseProvider = config.database and config.database.provider
-    if databaseProvider ~= 'memory' and databaseProvider ~= 'oxmysql' and databaseProvider ~= 'mysql' then
+    if databaseProvider ~= 'memory' and databaseProvider ~= 'oxmysql' then
         invalid(errors, 'database provider is invalid')
     end
+    validateMigrations(config.database and config.database.migrations, errors)
     if type(config.defaults) ~= 'table' then
         invalid(errors, 'defaults are required')
     else

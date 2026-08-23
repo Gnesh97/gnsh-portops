@@ -10,6 +10,18 @@ dofile('shared/crane/protocol.lua')
 dofile('shared/crane/validation.lua')
 dofile('config/config.lua')
 dofile('config/features.lua')
+dofile('server/core/result.lua')
+dofile('server/core/logger.lua')
+dofile('server/core/event_bus.lua')
+dofile('server/core/migrations.lua')
+dofile('server/adapters/database/memory.lua')
+dofile('server/adapters/database/oxmysql.lua')
+dofile('server/adapters/database/interface.lua')
+dofile('server/adapters/framework/standalone.lua')
+dofile('server/adapters/framework/qbcore.lua')
+dofile('server/adapters/framework/qbox.lua')
+dofile('server/adapters/framework/esx.lua')
+dofile('server/adapters/framework/interface.lua')
 dofile('server/security/validation.lua')
 dofile('server/crane/registry.lua')
 dofile('server/crane/sessions.lua')
@@ -30,10 +42,34 @@ assertf(bootstrap.ready, 'production bootstrap is not ready')
 assertf(bootstrap.stage == PortOps.Enums.ResourceStage.READY, 'resource stage did not reach READY')
 assertf(bootstrap.registry:get('qc-01'), 'default crane was not registered')
 assertf(registeredCommands.portops_status, 'development status command was not registered')
+assertf(bootstrap.database and bootstrap.database.provider == 'memory', 'memory database adapter was not wired')
+assertf(bootstrap.migrations and bootstrap.migrations.database == bootstrap.database, 'migration runner was not wired')
+assertf(bootstrap.database.schemaVersion == 2, 'database migrations did not reach latest version')
+assertf(bootstrap.framework and bootstrap.framework.provider == 'standalone', 'standalone framework adapter was not wired')
+assertf(bootstrap.logger and bootstrap.events, 'core utilities were not wired')
+
+local originalProvider = PortOps.Config.framework.provider
+PortOps.Config.framework.provider = 'qbox'
+local qboxConfigValid = PortOps.Security.Validation.validateConfig(PortOps.Config, PortOps.Features)
+assertf(qboxConfigValid, 'qbox framework provider was rejected by config validation')
+PortOps.Config.framework.provider = originalProvider
+
+local originalMigrations = PortOps.Config.database.migrations
+PortOps.Config.database.migrations = { { version = 1, path = '' }, { version = 1, path = 'duplicate.sql' } }
+local badMigrationsConfig = PortOps.Security.Validation.validateConfig(PortOps.Config, PortOps.Features)
+assertf(not badMigrationsConfig, 'invalid migration metadata was accepted by config validation')
+PortOps.Config.database.migrations = originalMigrations
+
+local originalFramework = bootstrap.framework
+bootstrap.framework = { provider = 'qbcore', getIdentifier = function() return nil end }
+local missingIdentity = runtime.handleReserve(11, 'qc-01')
+assertf(not missingIdentity.ok and missingIdentity.error.code == 'FRAMEWORK_IDENTITY_UNAVAILABLE', 'missing framework identity was not rejected')
+bootstrap.framework = originalFramework
 
 local first = runtime.handleReserve(11, 'qc-01')
 assertf(first.ok and first.data.sessionId, 'first reserve failed')
 assertf(first.data.serverTime, 'reserve response did not include server time')
+assertf(bootstrap.sessions.bySession[first.data.sessionId].operatorId == 'standalone:11', 'standalone framework identity was not used')
 local second = runtime.handleReserve(12, 'qc-01')
 assertf(not second.ok and second.error.code == 'CRANE_OCCUPIED', 'concurrent reserve was not rejected')
 local released = runtime.handleRelease(11, first.data.sessionId, first.data.sessionToken)

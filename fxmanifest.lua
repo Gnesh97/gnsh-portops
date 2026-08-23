@@ -17,6 +17,18 @@ shared_scripts {
     'config/features.lua'
 }
 server_scripts {
+    'server/core/result.lua',
+    'server/core/logger.lua',
+    'server/core/event_bus.lua',
+    'server/core/migrations.lua',
+    'server/adapters/database/memory.lua',
+    'server/adapters/database/oxmysql.lua',
+    'server/adapters/database/interface.lua',
+    'server/adapters/framework/standalone.lua',
+    'server/adapters/framework/qbcore.lua',
+    'server/adapters/framework/qbox.lua',
+    'server/adapters/framework/esx.lua',
+    'server/adapters/framework/interface.lua',
     'server/security/validation.lua',
     'server/crane/registry.lua',
     'server/crane/sessions.lua',
@@ -24,6 +36,11 @@ server_scripts {
     'server/crane/sync.lua',
     'server/crane/recovery.lua',
     'server/bootstrap.lua'
+}
+
+files {
+    'sql/001_initial.sql',
+    'sql/002_indexes.sql'
 }
 
 client_scripts {
