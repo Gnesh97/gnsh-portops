@@ -19,6 +19,15 @@ local function sourceNumber(source)
     return number or source
 end
 
+local function finite(value)
+    return type(value) == 'number' and value == value and value > -math.huge and value < math.huge
+end
+
+local function validPosition(position)
+    local kind = type(position)
+    return (kind == 'table' or kind == 'vector3' or kind == 'userdata') and finite(position.x) and finite(position.y) and finite(position.z)
+end
+
 local function clone(value)
     if type(value) ~= 'table' then return value end
     local result = {}
@@ -85,6 +94,11 @@ function Bootstrap.new(options)
         database = nil,
         migrations = nil,
         framework = nil,
+        containerRepository = nil,
+        containerStateMachine = nil,
+        containerService = nil,
+        streamingService = nil,
+        playerPositionResolver = options.playerPositionResolver,
         stage = nil,
         ready = false,
         error = nil,
@@ -324,6 +338,7 @@ end
 function Bootstrap:handleDisconnect(source)
     local impacted = {}
     for craneId, recipients in pairs(self.observers) do recipients[tostring(source)] = nil end
+    if self.streamingService then self.streamingService:unsubscribe(source) end
     for _, session in pairs(self.sessions and self.sessions.bySession or {}) do
         if session.source == tostring(source) then impacted[#impacted + 1] = session.craneId end
     end
@@ -344,6 +359,31 @@ function Bootstrap:handleDisconnect(source)
         end
     end
     return #impacted
+end
+
+function Bootstrap:handleContainerStream(source, position, options)
+    if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
+    if not self.streamingService then return PortOps.Errors.err('STREAMING_UNAVAILABLE', 'container streaming is unavailable') end
+    local authoritativePosition
+    if type(self.playerPositionResolver) == 'function' then
+        local ok, resolved = pcall(self.playerPositionResolver, source)
+        if ok and validPosition(resolved) then authoritativePosition = resolved end
+    elseif type(GetPlayerPed) == 'function' and type(GetEntityCoords) == 'function' then
+        local pedOk, ped = pcall(GetPlayerPed, sourceNumber(source))
+        if pedOk and ped and tonumber(ped) ~= 0 then
+            local coordsOk, coords = pcall(GetEntityCoords, ped)
+            if coordsOk and validPosition(coords) then
+                authoritativePosition = { x = coords.x, y = coords.y, z = coords.z }
+            end
+        end
+    end
+    if not authoritativePosition and type(self.playerPositionResolver) ~= 'function' and self.config and self.config.environment == 'development' and validPosition(position) then
+        -- The development memory profile can run without OneSync natives. A
+        -- production profile never falls back to a client-supplied position.
+        authoritativePosition = { x = position.x, y = position.y, z = position.z }
+    end
+    if not authoritativePosition then return PortOps.Errors.err('STREAM_POSITION_INVALID', 'authoritative player position is unavailable') end
+    return self.streamingService:subscribe(source, authoritativePosition, options)
 end
 
 function Bootstrap:_registerEvents()
@@ -378,6 +418,10 @@ function Bootstrap:_registerEvents()
     AddEventHandler('portops:crane:action:consume', function(token, craneId, sessionId, containerId, action, sessionToken, targetId)
         self:_reply(source, 'portops:crane:action:result', runtime.handleTokenConsume(source, token, craneId, sessionId, containerId, action, sessionToken, targetId))
     end)
+    RegisterNetEvent('portops:containers:stream:request')
+    AddEventHandler('portops:containers:stream:request', function(position, options)
+        self:_reply(source, 'portops:containers:stream:response', runtime.handleContainerStream(source, position, options))
+    end)
     AddEventHandler('playerDropped', function()
         runtime.handleDisconnect(source)
     end)
@@ -402,6 +446,11 @@ function Bootstrap:run()
     local Migrations = PortOps.Core.Migrations
     local Database = PortOps.Adapters.Database and PortOps.Adapters.Database.Interface
     local Framework = PortOps.Adapters.Framework and PortOps.Adapters.Framework.Interface
+    local ContainerDomain = PortOps.Domain and PortOps.Domain.Container
+    local ContainerRepository = PortOps.Repositories and PortOps.Repositories.Container
+    local ContainerStateMachine = PortOps.State and PortOps.State.ContainerStateMachine
+    local ContainerService = PortOps.Services and PortOps.Services.Container
+    local StreamingService = PortOps.Services and PortOps.Services.Streaming
     local missingModules = {}
     local requiredModules = {
         { name = 'Registry', value = Registry },
@@ -413,6 +462,11 @@ function Bootstrap:run()
         { name = 'Migrations', value = Migrations },
         { name = 'Database', value = Database },
         { name = 'Framework', value = Framework },
+        { name = 'ContainerDomain', value = ContainerDomain },
+        { name = 'ContainerRepository', value = ContainerRepository },
+        { name = 'ContainerStateMachine', value = ContainerStateMachine },
+        { name = 'ContainerService', value = ContainerService },
+        { name = 'StreamingService', value = StreamingService },
         { name = 'EventBus', value = self.events }
     }
     for _, required in ipairs(requiredModules) do
@@ -448,6 +502,15 @@ function Bootstrap:run()
     self.framework = framework
 
     self:_stage(PortOps.Enums.ResourceStage.SERVICES)
+    self.containerRepository = ContainerRepository.new({ database = self.database, clock = clockMs })
+    self.containerStateMachine = ContainerStateMachine.new({ clock = clockMs })
+    self.containerService = ContainerService.new({
+        repository = self.containerRepository,
+        stateMachine = self.containerStateMachine,
+        events = self.events,
+        logger = self.logger
+    })
+    self.streamingService = StreamingService.new({ repository = self.containerRepository, clock = clockMs })
     self.sessions = Sessions.new({ ttlMs = self.config.crane.sessionTtlMs, onInvalidated = function(session, reason) self:_onSessionInvalidated(session, reason) end })
     self.tokens = Tokens.new({
         ttlMs = self.config.crane.actionTokenTtlMs,
@@ -501,6 +564,7 @@ function Bootstrap:run()
         handleUnobserve = function(source, craneId) return self:handleUnobserve(source, craneId) end,
         handleTokenIssue = function(source, craneId, sessionId, containerId, action, sessionToken, targetId) return self:handleTokenIssue(source, craneId, sessionId, containerId, action, sessionToken, targetId) end,
         handleTokenConsume = function(source, token, craneId, sessionId, containerId, action, sessionToken, targetId) return self:handleTokenConsume(source, token, craneId, sessionId, containerId, action, sessionToken, targetId) end,
+        handleContainerStream = function(source, position, options) return self:handleContainerStream(source, position, options) end,
         handleDisconnect = function(source) return self:handleDisconnect(source) end
     }
     PortOps.Crane.RegistryInstance = self.registry
@@ -510,6 +574,10 @@ function Bootstrap:run()
     PortOps.Runtime.Database = self.database
     PortOps.Runtime.Migrations = self.migrations
     PortOps.Runtime.Framework = self.framework
+    PortOps.Runtime.ContainerRepository = self.containerRepository
+    PortOps.Runtime.ContainerStateMachine = self.containerStateMachine
+    PortOps.Runtime.ContainerService = self.containerService
+    PortOps.Runtime.StreamingService = self.streamingService
     PortOps.Runtime.Logger = self.logger
     PortOps.Runtime.Events = self.events
     self:_registerEvents()

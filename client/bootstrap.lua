@@ -12,6 +12,22 @@ PortOps.Client.clockOffsetKnown = false
 PortOps.Client.sequences = PortOps.Client.sequences or {}
 
 local ClientSync = PortOps.Crane.ClientSync
+local ContainerVisuals = PortOps.Client.ContainerVisuals
+local ContainerStreaming = PortOps.Client.ContainerStreaming
+
+if ContainerVisuals and type(ContainerVisuals.new) == 'function' then
+    PortOps.Client.containerVisuals = ContainerVisuals.new()
+end
+if ContainerStreaming and type(ContainerStreaming.new) == 'function' then
+    PortOps.Client.containerStreaming = ContainerStreaming.new({
+        visuals = PortOps.Client.containerVisuals,
+        requestDescriptors = function(position, options)
+            if type(TriggerServerEvent) == 'function' then
+                TriggerServerEvent('portops:containers:stream:request', position, options)
+            end
+        end
+    })
+end
 
 local function nowMs()
     if type(GetGameTimer) == 'function' then return GetGameTimer() end
@@ -177,11 +193,21 @@ if type(RegisterNetEvent) == 'function' and type(AddEventHandler) == 'function' 
         local target = PortOps.Client.observers[craneId]
         if target then ClientSync.clear(target); target.recovery = marker or true end
     end)
+    RegisterNetEvent('portops:containers:stream:response')
+    AddEventHandler('portops:containers:stream:response', function(result)
+        local streaming = PortOps.Client.containerStreaming
+        if result and result.ok and streaming then
+            streaming:receive(result.data or {}, result.meta and result.meta.requestId)
+        elseif result and result.error then
+            printClient(('container stream rejected: %s'):format(tostring(result.error.code)))
+        end
+    end)
     RegisterNetEvent('portops:resource:state')
     AddEventHandler('portops:resource:state', function(state) PortOps.Client.resourceState = state end)
     AddEventHandler('onClientResourceStop', function(resourceName)
         if resourceName == GetCurrentResourceName() then
             for craneId in pairs(PortOps.Client.observers) do PortOps.Client.unobserve(craneId) end
+            if PortOps.Client.containerStreaming then PortOps.Client.containerStreaming:stop() end
         end
     end)
 end
@@ -205,6 +231,7 @@ if type(CreateThread) == 'function' and type(Wait) == 'function' then
         while PortOps.Client.ready do
             Wait(50)
             for craneId, target in pairs(PortOps.Client.observers) do ClientSync.update(target, nowMs()) end
+            if PortOps.Client.containerStreaming then PortOps.Client.containerStreaming:update(nowMs()) end
         end
     end)
 end

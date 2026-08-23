@@ -6,6 +6,18 @@ PortOps.Core = PortOps.Core or {}
 local EventBus = {}
 EventBus.__index = EventBus
 
+local function copy(value, seen)
+    if type(value) ~= 'table' then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do
+        result[copy(key, seen)] = copy(child, seen)
+    end
+    return result
+end
+
 local function validName(name)
     return type(name) == 'string' and #name > 0 and #name <= 128
 end
@@ -43,7 +55,7 @@ function EventBus:emit(name, payload, context)
     local listeners = self.handlers[name] or {}
     local delivered, failures = 0, 0
     for _, handler in ipairs(listeners) do
-        local ok, reason = pcall(handler, payload, context)
+        local ok, reason = pcall(handler, copy(payload), copy(context))
         if ok then
             delivered = delivered + 1
         else

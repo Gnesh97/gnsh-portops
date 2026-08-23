@@ -30,6 +30,11 @@ server_scripts {
     'server/adapters/framework/esx.lua',
     'server/adapters/framework/interface.lua',
     'server/security/validation.lua',
+    'server/domain/container.lua',
+    'server/repositories/container_repository.lua',
+    'server/state/container_state_machine.lua',
+    'server/services/container_service.lua',
+    'server/services/streaming_service.lua',
     'server/crane/registry.lua',
     'server/crane/sessions.lua',
     'server/crane/action_tokens.lua',
@@ -40,10 +45,13 @@ server_scripts {
 
 files {
     'sql/001_initial.sql',
-    'sql/002_indexes.sql'
+    'sql/002_indexes.sql',
+    'sql/003_containers.sql'
 }
 
 client_scripts {
     'client/crane/sync.lua',
+    'client/containers/visuals.lua',
+    'client/containers/streaming.lua',
     'client/bootstrap.lua'
 }

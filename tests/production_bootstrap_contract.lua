@@ -23,6 +23,11 @@ dofile('server/adapters/framework/qbox.lua')
 dofile('server/adapters/framework/esx.lua')
 dofile('server/adapters/framework/interface.lua')
 dofile('server/security/validation.lua')
+dofile('server/domain/container.lua')
+dofile('server/repositories/container_repository.lua')
+dofile('server/state/container_state_machine.lua')
+dofile('server/services/container_service.lua')
+dofile('server/services/streaming_service.lua')
 dofile('server/crane/registry.lua')
 dofile('server/crane/sessions.lua')
 dofile('server/crane/action_tokens.lua')
@@ -44,9 +49,21 @@ assertf(bootstrap.registry:get('qc-01'), 'default crane was not registered')
 assertf(registeredCommands.portops_status, 'development status command was not registered')
 assertf(bootstrap.database and bootstrap.database.provider == 'memory', 'memory database adapter was not wired')
 assertf(bootstrap.migrations and bootstrap.migrations.database == bootstrap.database, 'migration runner was not wired')
-assertf(bootstrap.database.schemaVersion == 2, 'database migrations did not reach latest version')
+assertf(bootstrap.database.schemaVersion == 3, 'database migrations did not reach latest version')
 assertf(bootstrap.framework and bootstrap.framework.provider == 'standalone', 'standalone framework adapter was not wired')
 assertf(bootstrap.logger and bootstrap.events, 'core utilities were not wired')
+assertf(bootstrap.containerService and bootstrap.streamingService, 'container services were not wired')
+assertf(PortOps.Runtime.ContainerService == bootstrap.containerService and PortOps.Runtime.StreamingService == bootstrap.streamingService, 'container runtime services were not published')
+local streamResult = runtime.handleContainerStream(11, { x = 0, y = 0, z = 0 }, { radius = 10 })
+assertf(streamResult.ok and #streamResult.data == 0, 'empty container stream request failed')
+local invalidStream = runtime.handleContainerStream(11, { x = 0 / 0, y = 0, z = 0 }, { radius = 10 })
+assertf(not invalidStream.ok and invalidStream.error.code == 'STREAM_POSITION_INVALID', 'invalid stream position was accepted')
+local previousGetPlayerPed, previousGetEntityCoords = GetPlayerPed, GetEntityCoords
+GetPlayerPed = function() return 0 end
+GetEntityCoords = function() return nil end
+local developmentFallbackStream = runtime.handleContainerStream(12, { x = 0, y = 0, z = 0 }, { radius = 10 })
+assertf(developmentFallbackStream.ok, 'development stream fallback failed without authoritative ped coordinates')
+GetPlayerPed, GetEntityCoords = previousGetPlayerPed, previousGetEntityCoords
 
 local originalProvider = PortOps.Config.framework.provider
 PortOps.Config.framework.provider = 'qbox'

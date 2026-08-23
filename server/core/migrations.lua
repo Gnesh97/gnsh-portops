@@ -9,7 +9,8 @@ Migrations.__index = Migrations
 
 local DEFAULTS = {
     { version = 1, path = 'sql/001_initial.sql' },
-    { version = 2, path = 'sql/002_indexes.sql' }
+    { version = 2, path = 'sql/002_indexes.sql' },
+    { version = 3, path = 'sql/003_containers.sql' }
 }
 
 local function sortedCopy(items)

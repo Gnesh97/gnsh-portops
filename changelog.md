@@ -21,10 +21,12 @@ All notable changes to PortOps are documented in this file.
 - Added S03 production foundation contracts: idempotent memory/oxmysql migration boundary, normalized framework adapters, Result/Logger/EventBus utilities, and resource-stop cleanup.
 - Hardened S03 boundaries with Qbox validation, strict framework identity checks, credential-key log redaction, migration metadata validation, database failure cleanup, and real framework hook unsubscribe.
 - Improved bootstrap diagnostics so missing foundation modules are named in the startup failure message.
+- Added S04 persistent container core: schema migration 003, validated logical container domain, CRUD repository, optimistic version checks, lifecycle state machine, transition guards, safe DTOs, and activity events.
+- Added S04 ISO visual resolver and nearby-only container streaming with bounded descriptors, interest-radius hysteresis, unload/re-entry reconciliation, and client/server bootstrap wiring.
 
 ### Notes
 
 - The master development plan has been received and reviewed.
 - S01 remains a historical development-only client prototype and is excluded from the root production manifest.
-- Database persistence, framework adapters, container/yard/berth transitions, and visual crane controls remain explicitly deferred to their planned phases.
+- Yard/berth transitions, customs/gate workflows, and visual crane controls remain explicitly deferred to their planned phases; the logical container persistence phase is now complete.
 - Root Lua syntax and offline contracts pass; FiveM runtime acceptance now includes the live `READY` bootstrap log and the documented development smoke commands.

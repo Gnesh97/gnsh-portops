@@ -35,6 +35,10 @@ assert(subscribed and type(registered) == 'function', 'event subscription contra
 assert(bus:on('container.created', function() error('isolated failure') end))
 local emitted, summary = bus:emit('container.created', { id = 'c-1' })
 assert(emitted and summary.delivered == 1 and summary.failures == 1 and calls == 1, 'event handlers were not isolated')
+local eventPayload = { nested = { value = 1 } }
+assert(bus:on('container.copy', function(payload) payload.nested.value = 99 end))
+assert(bus:emit('container.copy', eventPayload))
+assert(eventPayload.nested.value == 1, 'event payload leaked mutable handler state')
 assert(registered(), 'event unsubscribe contract failed')
 local reEmitted, reSummary = bus:emit('container.created', {})
 assert(reEmitted and reSummary.delivered == 0 and reSummary.failures == 1 and calls == 1, 'event unsubscribe contract failed')
