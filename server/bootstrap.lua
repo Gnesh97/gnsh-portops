@@ -402,8 +402,25 @@ function Bootstrap:run()
     local Migrations = PortOps.Core.Migrations
     local Database = PortOps.Adapters.Database and PortOps.Adapters.Database.Interface
     local Framework = PortOps.Adapters.Framework and PortOps.Adapters.Framework.Interface
-    if not Registry or not Sessions or not Tokens or not ServerSync or not Recovery or not Result or not Migrations or not Database or not Framework or not self.events then
-        return self:_fail(PortOps.Enums.ResourceStage.SERVICES, 'required modules are missing')
+    local missingModules = {}
+    local requiredModules = {
+        Registry = Registry,
+        Sessions = Sessions,
+        Tokens = Tokens,
+        ServerSync = ServerSync,
+        Recovery = Recovery,
+        Result = Result,
+        Migrations = Migrations,
+        Database = Database,
+        Framework = Framework,
+        EventBus = self.events
+    }
+    for name, module in pairs(requiredModules) do
+        if not module then missingModules[#missingModules + 1] = name end
+    end
+    if #missingModules > 0 then
+        table.sort(missingModules)
+        return self:_fail(PortOps.Enums.ResourceStage.SERVICES, 'required modules are missing: ' .. table.concat(missingModules, ', '))
     end
     local registry, registryReason = Registry.new(self.config)
     if not registry then return self:_fail(PortOps.Enums.ResourceStage.CONFIG, registryReason) end
