@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
     "commit": "",
-    "indexed_at": "2026-08-22T23:50:07Z",
+    "indexed_at": "2026-08-23T12:30:34Z",
     "project": "gnsh-portops",
     "nodes": 460,
     "edges": 1158,
     "original_size": 2752512,
-    "compressed_size": 380854,
+    "compressed_size": 380907,
     "compression_level": 3
 }

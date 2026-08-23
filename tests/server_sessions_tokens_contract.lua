@@ -5,7 +5,15 @@ dofile(root .. 'action_tokens.lua')
 
 local time = 1000
 local sessions = PortOpsCrane.Sessions.new({ ttlMs = 100, clock = function() return time end })
+local originalTostring = tostring
+tostring = function(value)
+    if type(value) == 'table' then return 'table: 0000029FD80A0F00' end
+    return originalTostring(value)
+end
 local first = assert(sessions:reserve('qc-01', 11, 'employee-11'))
+tostring = originalTostring
+assert(not first.id:find('table:', 1, true), 'session id leaked table allocation format')
+assert(not first.token:find('table:', 1, true), 'session token leaked table allocation format')
 assert(not first.token:match('^st_%d+_%d+$'), 'session token must not be timestamp predictable')
 local second, occupiedReason = sessions:reserve('qc-01', 12, 'employee-12')
 assert(not second and occupiedReason == 'CRANE_OCCUPIED', 'reserve must be atomic per crane')
@@ -38,7 +46,14 @@ local tokens = PortOpsCrane.ActionTokens.new({
     clock = function() return time end,
     replayLog = function(event) replayReasons[#replayReasons + 1] = event end
 })
+originalTostring = tostring
+tostring = function(value)
+    if type(value) == 'table' then return 'table: 0000029FD80A0F00' end
+    return originalTostring(value)
+end
 local token = assert(tokens:issue(sessions, active.id, 'qc-03', 'MSCU-001', 'attach', 14, 'employee-14'))
+tostring = originalTostring
+assert(not token:find('table:', 1, true), 'action token leaked table allocation format')
 local secureToken = assert(tokens:issue(sessions, active.id, 'qc-03', 'MSCU-SECURE', 'attach', 14, 'employee-14', time, active.token))
 local invalidCredential, invalidCredentialReason = tokens:consume(secureToken, sessions, active.id, 'qc-03', 'MSCU-SECURE', 'attach', 14, 'employee-14', time, 'invalid-token')
 assert(not invalidCredential and invalidCredentialReason == 'WRONG_SESSION_TOKEN', 'token consume must enforce supplied session credential')

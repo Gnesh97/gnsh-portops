@@ -17,6 +17,7 @@ All notable changes to PortOps are documented in this file.
 - Added PORT-023/024 short-lived action tokens and disconnect recovery: opaque random credentials, one-time consume, binding checks, replay-safe logs, canonical freeze, token/session invalidation, and observer recovery markers.
 - Added development-only live smoke commands for reserve, observe, snapshot, action-token issue/consume, release, and resource status checks.
 - Added session-bound snapshot guard reset, server-clock localization for client interpolation, and bounded action-token issue/active limits.
+- Fixed fallback session and action-token identifiers leaking Lua `table:` allocation formatting.
 
 ### Notes
 

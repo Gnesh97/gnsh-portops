@@ -5,6 +5,13 @@ PortOpsCrane = PortOpsCrane or {}
 local Tokens = {}
 Tokens.__index = Tokens
 
+local function allocationEntropy()
+    local representation = tostring({})
+    local allocation = representation:match('0x(%x+)') or representation:match(':%s*([%da-fA-F]+)')
+    if allocation and allocation ~= '' then return allocation end
+    return ('%x'):format(math.floor(os.clock() * 1000000))
+end
+
 local function entropy()
     if type(GetRandomIntInRange) == 'function' then
         return ('%08x%08x'):format(GetRandomIntInRange(0, 0x7fffffff), GetRandomIntInRange(0, 0x7fffffff))
@@ -12,7 +19,7 @@ local function entropy()
     -- Offline/test fallback: combine independent clock, PRNG and allocation
     -- entropy.  FiveM production uses GetRandomIntInRange above.
     math.randomseed(math.floor(os.clock() * 1000000) + os.time())
-    local allocation = tostring({}):match('0x(%x+)') or tostring({})
+    local allocation = allocationEntropy()
     return ('%08x%08x%s'):format(math.random(0, 0x7fffffff), math.random(0, 0x7fffffff), allocation)
 end
 

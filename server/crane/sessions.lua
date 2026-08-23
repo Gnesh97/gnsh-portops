@@ -5,6 +5,13 @@ PortOpsCrane = PortOpsCrane or {}
 local Sessions = {}
 Sessions.__index = Sessions
 
+local function allocationEntropy()
+    local representation = tostring({})
+    local allocation = representation:match('0x(%x+)') or representation:match(':%s*([%da-fA-F]+)')
+    if allocation and allocation ~= '' then return allocation end
+    return ('%x'):format(math.floor(os.clock() * 1000000))
+end
+
 local function nowMs(value)
     if type(value) == 'number' then return value end
     if type(GetGameTimer) == 'function' then return GetGameTimer() end
@@ -21,7 +28,7 @@ local function makeId(prefix, sequence, now)
             GetRandomIntInRange(0, 0x7fffffff), GetRandomIntInRange(0, 0x7fffffff), sequence)
     end
     math.randomseed(math.floor(os.clock() * 1000000) + os.time())
-    local allocation = tostring({}):match('0x(%x+)') or tostring({})
+    local allocation = allocationEntropy()
     return ('%s_%08x%08x%s_%d'):format(prefix,
         math.random(0, 0x7fffffff), math.random(0, 0x7fffffff), allocation, sequence)
 end
