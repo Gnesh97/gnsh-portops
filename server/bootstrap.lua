@@ -404,19 +404,19 @@ function Bootstrap:run()
     local Framework = PortOps.Adapters.Framework and PortOps.Adapters.Framework.Interface
     local missingModules = {}
     local requiredModules = {
-        Registry = Registry,
-        Sessions = Sessions,
-        Tokens = Tokens,
-        ServerSync = ServerSync,
-        Recovery = Recovery,
-        Result = Result,
-        Migrations = Migrations,
-        Database = Database,
-        Framework = Framework,
-        EventBus = self.events
+        { name = 'Registry', value = Registry },
+        { name = 'Sessions', value = Sessions },
+        { name = 'Tokens', value = Tokens },
+        { name = 'ServerSync', value = ServerSync },
+        { name = 'Recovery', value = Recovery },
+        { name = 'Result', value = Result },
+        { name = 'Migrations', value = Migrations },
+        { name = 'Database', value = Database },
+        { name = 'Framework', value = Framework },
+        { name = 'EventBus', value = self.events }
     }
-    for name, module in pairs(requiredModules) do
-        if not module then missingModules[#missingModules + 1] = name end
+    for _, required in ipairs(requiredModules) do
+        if not required.value then missingModules[#missingModules + 1] = required.name end
     end
     if #missingModules > 0 then
         table.sort(missingModules)
