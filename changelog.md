@@ -25,11 +25,18 @@ All notable changes to PortOps are documented in this file.
 - Added S04 ISO visual resolver and nearby-only container streaming with bounded descriptors, interest-radius hysteresis, unload/re-entry reconciliation, and client/server bootstrap wiring.
 - Added S05 Yard Engine: config-driven canonical slots, ISO/zone compatibility, owner-bound TTL reservations, versioned snap placement, yard-cell streaming, and logical container location commits.
 - Added S06 Move Order Engine: transactional move/step persistence, ordered state machines, optimistic versions, prerequisite/idempotent completion, role/availability assignment, and recovery/block hooks.
+- Added S07 critical vertical-slice seams: production crane rig/controller/cameras, field-operation handoff orchestration, terminal tractor/yard-handler validation, recovery service, and vertical-slice scenario gate.
+- Added S08 vessel/voyage/call, berth conflict, manifest materialization, discharge planning, and migrations 006–007.
+- Added S09 typed NUI callback transport and overview, move, yard, crane, gate, customs, and analytics feature entry points.
+- Added S10 appointment persistence/service lifecycle, customs-aware gate-out guard, gate interaction validation, and migration 008.
+- Added S11–S14 customs risk/cases, inspection guard, workforce/certifications, equipment registry, exception recovery, activity timeline, audit, analytics, and migrations 009–012.
 - Added S15–S19 release surfaces: public DTO/API boundaries, idempotency/events, framework scenario contracts, security/load/release docs, CI, and release builder.
+- Hardened the production path with oxmysql persistence for yard reservations/occupancy, vessels, calls, manifests, gate appointments, and idempotency claims; added startup recovery reconciliation and berth assignment reload.
+- Added recursive credential redaction, strict idempotency result validation/claim leases, checked export registration, release archive assertions, gate listing, and manifest-to-container linkage.
 
 ### Notes
 
 - The master development plan has been received and reviewed.
 - S01 remains a historical development-only client prototype and is excluded from the root production manifest.
-- Vessel, berth, manifest, MDT, gate, customs, workforce, equipment, exception, and analytics workflows remain behind their planned phase integrations; S05/S06 foundations are active in the development profile.
+- Production profile still requires a live oxmysql/framework/OneSync acceptance run; offline contracts cover server authority and persistence boundaries.
 - Root Lua syntax and offline contracts pass; FiveM runtime acceptance now includes the live `READY` bootstrap log and the documented development smoke commands.

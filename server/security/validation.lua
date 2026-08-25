@@ -76,9 +76,13 @@ function Security.validateConfig(config, features)
     if type(config.yards) ~= 'table' or not config.defaults or not config.yards[config.defaults.yardId] then
         invalid(errors, 'default yard reference is missing')
     end
+    if type(config.yard) == 'table' and config.yard.id ~= nil and (type(config.yard.id) ~= 'string' or config.yard.id == '') then
+        invalid(errors, 'yard.id is invalid')
+    end
     if type(config.berths) ~= 'table' or not config.defaults or not config.berths[config.defaults.berthId] then
         invalid(errors, 'default berth reference is missing')
     end
+    if type(config.berthSlots) ~= 'table' or #config.berthSlots == 0 then invalid(errors, 'berth slot configuration is required') end
     if config.defaults and config.craneProfiles and not config.craneProfiles[config.defaults.craneId] then
         invalid(errors, 'default crane reference is missing')
     end

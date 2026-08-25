@@ -14,6 +14,7 @@ PortOps.Client.sequences = PortOps.Client.sequences or {}
 local ClientSync = PortOps.Crane.ClientSync
 local ContainerVisuals = PortOps.Client.ContainerVisuals
 local ContainerStreaming = PortOps.Client.ContainerStreaming
+local YardStreaming = PortOps.Client.YardStreaming
 
 if ContainerVisuals and type(ContainerVisuals.new) == 'function' then
     PortOps.Client.containerVisuals = ContainerVisuals.new()
@@ -27,6 +28,35 @@ if ContainerStreaming and type(ContainerStreaming.new) == 'function' then
             end
         end
     })
+end
+
+local function playerPosition()
+    if type(GetPlayerPed) ~= 'function' or type(PlayerId) ~= 'function' or type(GetEntityCoords) ~= 'function' then return nil end
+    local ped = GetPlayerPed(PlayerId())
+    if not ped or tonumber(ped) == 0 then return nil end
+    local coords = GetEntityCoords(ped)
+    if not coords then return nil end
+    return { x = coords.x, y = coords.y, z = coords.z }
+end
+
+if YardStreaming and type(YardStreaming.new) == 'function' then
+    PortOps.Client.yardStreaming = YardStreaming.new({
+        getPlayerPosition = playerPosition,
+        enterRadius = PortOps.Config and PortOps.Config.yard and PortOps.Config.yard.interestRadius or 90,
+        leaveRadius = PortOps.Config and PortOps.Config.yard and PortOps.Config.yard.interestLeaveRadius or 110,
+        request = function(position, options)
+            if type(TriggerServerEvent) == 'function' then
+                TriggerServerEvent('portops:yard:stream:request', position, options)
+            end
+            return nil
+        end
+    })
+end
+
+function PortOps.Client.placeYardContainer(containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion)
+    if type(TriggerServerEvent) ~= 'function' then return false end
+    TriggerServerEvent('portops:yard:place', containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion)
+    return true
 end
 
 local function nowMs()
@@ -188,6 +218,10 @@ if type(RegisterNetEvent) == 'function' and type(AddEventHandler) == 'function' 
         if accepted then target.recovery = false
         elseif type(TriggerServerEvent) == 'function' then TriggerServerEvent('portops:crane:observe', craneId) end
     end)
+    RegisterNetEvent('portops:crane:snapshot:result')
+    AddEventHandler('portops:crane:snapshot:result', function(result)
+        if result and result.error then printClient(('snapshot rejected: %s'):format(tostring(result.error.code))) end
+    end)
     RegisterNetEvent('portops:crane:recovery_required')
     AddEventHandler('portops:crane:recovery_required', function(craneId, marker)
         local target = PortOps.Client.observers[craneId]
@@ -202,12 +236,30 @@ if type(RegisterNetEvent) == 'function' and type(AddEventHandler) == 'function' 
             printClient(('container stream rejected: %s'):format(tostring(result.error.code)))
         end
     end)
+    RegisterNetEvent('portops:yard:stream:response')
+    AddEventHandler('portops:yard:stream:response', function(result)
+        local streaming = PortOps.Client.yardStreaming
+        if result and result.ok and streaming then
+            streaming:receive(result.data or {}, result.meta and result.meta.requestId)
+        elseif result and result.error then
+            printClient(('yard stream rejected: %s'):format(tostring(result.error.code)))
+        end
+    end)
+    RegisterNetEvent('portops:yard:place:result')
+    AddEventHandler('portops:yard:place:result', function(result)
+        if result and result.ok then
+            printClient('yard placement committed')
+        elseif result and result.error then
+            printClient(('yard placement rejected: %s'):format(tostring(result.error.code)))
+        end
+    end)
     RegisterNetEvent('portops:resource:state')
     AddEventHandler('portops:resource:state', function(state) PortOps.Client.resourceState = state end)
     AddEventHandler('onClientResourceStop', function(resourceName)
         if resourceName == GetCurrentResourceName() then
             for craneId in pairs(PortOps.Client.observers) do PortOps.Client.unobserve(craneId) end
             if PortOps.Client.containerStreaming then PortOps.Client.containerStreaming:stop() end
+            if PortOps.Client.yardStreaming then PortOps.Client.yardStreaming:stop() end
         end
     end)
 end
@@ -232,6 +284,7 @@ if type(CreateThread) == 'function' and type(Wait) == 'function' then
             Wait(50)
             for craneId, target in pairs(PortOps.Client.observers) do ClientSync.update(target, nowMs()) end
             if PortOps.Client.containerStreaming then PortOps.Client.containerStreaming:update(nowMs()) end
+            if PortOps.Client.yardStreaming then PortOps.Client.yardStreaming:update(nowMs()) end
         end
     end)
 end

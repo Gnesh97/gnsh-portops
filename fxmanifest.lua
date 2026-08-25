@@ -4,7 +4,7 @@ lua54 'yes'
 
 author 'Gnesh97'
 description 'PortOps production-first port operations resource'
-version '0.1.0'
+version '0.3.0'
 
 shared_scripts {
     'shared/enums.lua',
@@ -14,12 +14,17 @@ shared_scripts {
     'shared/crane/protocol.lua',
     'shared/crane/validation.lua',
     'config/config.lua',
-    'config/features.lua'
+    'config/features.lua',
+    'config/yard.lua',
+    'config/berths.lua',
+    'config/customs.lua',
+    'config/equipment.lua'
 }
 server_scripts {
     'server/core/result.lua',
     'server/core/logger.lua',
     'server/core/event_bus.lua',
+    'server/core/idempotency.lua',
     'server/core/migrations.lua',
     'server/adapters/database/memory.lua',
     'server/adapters/database/oxmysql.lua',
@@ -30,10 +35,60 @@ server_scripts {
     'server/adapters/framework/esx.lua',
     'server/adapters/framework/interface.lua',
     'server/security/validation.lua',
+    'server/security/crane_tokens.lua',
+    'server/api/dto.lua',
+    'server/api/events.lua',
+    'server/api/callbacks.lua',
+    'server/api/exports.lua',
+    'server/core/reservations.lua',
     'server/domain/container.lua',
+    'server/domain/yard.lua',
+    'server/domain/move.lua',
+    'server/domain/move_order.lua',
+    'server/domain/vessel.lua',
+    'server/domain/gate_appointment.lua',
+    'server/domain/customs_case.lua',
+    'server/domain/exception.lua',
     'server/repositories/container_repository.lua',
+    'server/repositories/yard_repository.lua',
+    'server/repositories/move_repository.lua',
+    'server/repositories/vessel_repository.lua',
+    'server/repositories/vessel_call_repository.lua',
+    'server/repositories/manifest_repository.lua',
+    'server/repositories/gate_repository.lua',
+    'server/repositories/customs_repository.lua',
+    'server/repositories/employee_repository.lua',
+    'server/repositories/equipment_repository.lua',
+    'server/repositories/exception_repository.lua',
+    'server/repositories/activity_repository.lua',
+    'server/repositories/audit_repository.lua',
+    'server/repositories/analytics_repository.lua',
     'server/state/container_state_machine.lua',
+    'server/state/move_state_machine.lua',
+    'server/state/move_step_state_machine.lua',
+    'server/state/vessel_call_state_machine.lua',
     'server/services/container_service.lua',
+    'server/services/yard_service.lua',
+    'server/services/placement_service.lua',
+    'server/services/move_service.lua',
+    'server/services/move_assignment.lua',
+    'server/services/assignment_service.lua',
+    'server/services/crane_service.lua',
+    'server/services/field_operation_service.lua',
+    'server/services/recovery_service.lua',
+    'server/services/vessel_call_service.lua',
+    'server/services/berth_service.lua',
+    'server/services/manifest_service.lua',
+    'server/services/discharge_planning_service.lua',
+    'server/services/gate_service.lua',
+    'server/services/customs_risk_service.lua',
+    'server/services/customs_service.lua',
+    'server/services/employee_service.lua',
+    'server/services/equipment_service.lua',
+    'server/services/exception_service.lua',
+    'server/services/activity_service.lua',
+    'server/services/audit_service.lua',
+    'server/services/analytics_service.lua',
     'server/services/streaming_service.lua',
     'server/crane/registry.lua',
     'server/crane/sessions.lua',
@@ -46,12 +101,37 @@ server_scripts {
 files {
     'sql/001_initial.sql',
     'sql/002_indexes.sql',
-    'sql/003_containers.sql'
+    'sql/003_containers.sql',
+    'sql/004_yard.sql',
+    'sql/005_moves.sql',
+    'sql/006_vessels.sql',
+    'sql/007_manifests.sql',
+    'sql/008_gate.sql',
+    'sql/009_customs.sql',
+    'sql/010_workforce.sql',
+    'sql/011_equipment.sql',
+    'sql/012_audit.sql',
+    'sql/013_idempotency.sql'
 }
 
 client_scripts {
+    'client/crane/rig.lua',
+    'client/crane/controller.lua',
+    'client/crane/cameras.lua',
     'client/crane/sync.lua',
     'client/containers/visuals.lua',
     'client/containers/streaming.lua',
+    'client/yard/snap.lua',
+    'client/yard/streaming.lua',
+    'client/equipment/terminal_tractor.lua',
+    'client/equipment/yard_handler.lua',
+    'client/gate/interactions.lua',
+    'client/nui.lua',
     'client/bootstrap.lua'
+}
+
+server_exports {
+    'CreateVesselCall', 'GetVesselCall', 'CreateContainer', 'GetContainer',
+    'CreateMoveOrder', 'CreateGateAppointment', 'SetCustomsHold',
+    'ReleaseContainer', 'GetHealth'
 }

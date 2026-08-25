@@ -25,6 +25,7 @@ function Service:occupy(container,slotId,ownerId,expectedVersion)
     return self.repository:occupy(slotId,ownerId,container.id,expectedVersion)
 end
 function Service:unoccupy(slotId, containerId) return self.repository:unoccupy(slotId, containerId) end
+function Service:restoreOccupancy(slotId, containerId) return self.repository:restoreOccupancy(slotId, containerId) end
 function Service:descriptor(slot)
     return { id=slot.id, block=slot.block, bay=slot.bay, row=slot.row, tier=slot.tier, zone=slot.zone, state=slot.state, version=slot.version, transform=copy(slot.transform), occupantId=slot.occupantId }
 end

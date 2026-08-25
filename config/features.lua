@@ -7,9 +7,9 @@ PortOps.Features = {
     actionTokens = true,
     disconnectRecovery = true,
     memoryPersistence = true,
-    frameworkAdapters = false,
-    containerDomain = false,
-    yardDomain = false,
-    berthDomain = false,
+    frameworkAdapters = true,
+    containerDomain = true,
+    yardDomain = true,
+    berthDomain = true,
     rewards = false
 }

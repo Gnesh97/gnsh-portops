@@ -36,7 +36,12 @@ function Service:_lookup(idOrNumber)
 end
 
 function Service:create(input, context)
-    local validated = Container.new(input or {})
+    context = context or {}
+    local payload = {}
+    for key, value in pairs(input or {}) do payload[key] = value end
+    if payload.manifestId == nil and context.manifestId ~= nil then payload.manifestId = context.manifestId end
+    if payload.vesselCallId == nil and context.vesselCallId ~= nil then payload.vesselCallId = context.vesselCallId end
+    local validated = Container.new(payload)
     if Result.isErr(validated) then return validated end
     local created = self.repository:create(validated.data)
     if Result.isErr(created) then return created end

@@ -24,6 +24,19 @@ function Reservations:get(slotId)
     local r = self.records[slotId]; if r and r.expiresAt <= self:_now() then self:_expire(slotId, r); r = nil end
     return r and Result.ok(r) or Result.err('RESERVATION_NOT_FOUND', 'reservation was not found')
 end
+function Reservations:restore(record)
+    if type(record) ~= 'table' or type(record.slotId) ~= 'string' or type(record.ownerId) ~= 'string' or type(record.expiresAt) ~= 'number' then
+        return Result.err('RESERVATION_INVALID', 'reservation record is invalid')
+    end
+    if record.expiresAt <= self:_now() then return Result.err('RESERVATION_EXPIRED', 'reservation has expired') end
+    self.records[record.slotId] = {
+        slotId = record.slotId,
+        ownerId = record.ownerId,
+        token = record.token or ('res-%s-%d'):format(record.slotId, record.expiresAt),
+        expiresAt = record.expiresAt
+    }
+    return Result.ok(self.records[record.slotId])
+end
 function Reservations:release(slotId, ownerId)
     local r = self:get(slotId); if Result.isErr(r) then return r end
     if ownerId and r.data.ownerId ~= ownerId then return Result.err('RESERVATION_OWNER_INVALID', 'reservation owner mismatch') end

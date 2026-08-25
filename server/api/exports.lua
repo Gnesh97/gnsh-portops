@@ -50,7 +50,7 @@ function Api.ReleaseContainer(id, expectedVersion, key)
 end
 function Api.GetHealth()
     local boot = runtime().Bootstrap
-    return { ok = true, data = { ready = boot and boot.ready == true, stage = boot and boot.stage, version = PortOps.Config and PortOps.Config.version, schemaVersion = boot and boot.database and boot.database.schemaVersion } }
+    return { ok = true, data = { ready = boot and boot.ready == true, stage = boot and boot.stage, version = PortOps.Config and PortOps.Config.version, schemaVersion = boot and boot.database and boot.database.schemaVersion, recoveryRequired = boot and boot.recoveryRequired == true } }
 end
 PortOps.Api.Exports = Api
 return Api

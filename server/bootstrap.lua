@@ -98,6 +98,43 @@ function Bootstrap.new(options)
         containerStateMachine = nil,
         containerService = nil,
         streamingService = nil,
+        yardRepository = nil,
+        yardService = nil,
+        placementService = nil,
+        moveRepository = nil,
+        moveStateMachine = nil,
+        moveStepStateMachine = nil,
+        moveAssignment = nil,
+        moveService = nil,
+        craneService = nil,
+        fieldOperationService = nil,
+        recoveryService = nil,
+        vesselRepository = nil,
+        vesselCallRepository = nil,
+        vesselCallStateMachine = nil,
+        vesselCallService = nil,
+        berthService = nil,
+        manifestRepository = nil,
+        manifestService = nil,
+        dischargePlanningService = nil,
+        gateRepository = nil,
+        gateService = nil,
+        customsRepository = nil,
+        customsRiskService = nil,
+        customsService = nil,
+        employeeRepository = nil,
+        employeeService = nil,
+        equipmentRepository = nil,
+        equipmentService = nil,
+        exceptionRepository = nil,
+        exceptionService = nil,
+        activityRepository = nil,
+        activityService = nil,
+        auditRepository = nil,
+        auditService = nil,
+        analyticsRepository = nil,
+        analyticsService = nil,
+        idempotency = nil,
         playerPositionResolver = options.playerPositionResolver,
         stage = nil,
         ready = false,
@@ -108,7 +145,10 @@ function Bootstrap.new(options)
         recovery = nil,
         syncs = {},
         observers = {},
-        eventsRegistered = false
+        eventsRegistered = false,
+        eventUnsubscribers = {},
+        recoveryRequired = false,
+        recoveryWarnings = {}
     }, Bootstrap)
 end
 
@@ -121,6 +161,8 @@ function Bootstrap:_fail(stage, reason)
     self:_stage(PortOps.Enums.ResourceStage.FAILED)
     self.ready = false
     self.error = { stage = stage, reason = reason }
+    if PortOps.Crane and PortOps.Crane.Runtime and PortOps.Crane.Runtime.bootstrap == self then PortOps.Crane.Runtime = nil end
+    if PortOps.Runtime and PortOps.Runtime.Bootstrap == self then PortOps.Runtime = {} end
     if self.database and self.database.close then pcall(self.database.close, self.database) end
     if self.logger and self.logger.error then self.logger:error('startup failed', { stage = stage, reason = reason }) end
     if type(print) == 'function' then print(('[PortOps] startup failed at %s: %s'):format(stage, reasonText(reason))) end
@@ -130,8 +172,61 @@ end
 function Bootstrap:stop()
     if self.events and self.events.emit then self.events:emit('portops:resource.stop', { version = self.config and self.config.version }) end
     if self.database and self.database.close then self.database:close() end
+    -- Make in-process authority state inert across a resource restart.
+    self.observers = {}
+    self.syncs = {}
+    self.sessions = nil
+    self.tokens = nil
+    self.recovery = nil
+    self.registry = nil
+    self.streamingService = nil
+    self.containerService = nil
+    self.containerRepository = nil
+    self.placementService = nil
+    self.yardService = nil
+    self.yardRepository = nil
+    self.moveService = nil
+    self.moveAssignment = nil
+    self.moveStepStateMachine = nil
+    self.moveStateMachine = nil
+    self.moveRepository = nil
+    self.craneService = nil
+    self.fieldOperationService = nil
+    self.recoveryService = nil
+    self.vesselCallService = nil
+    self.vesselCallStateMachine = nil
+    self.vesselRepository = nil
+    self.vesselCallRepository = nil
+    self.berthService = nil
+    self.manifestService = nil
+    self.manifestRepository = nil
+    self.dischargePlanningService = nil
+    self.gateService = nil
+    self.gateRepository = nil
+    self.customsService = nil
+    self.customsRiskService = nil
+    self.customsRepository = nil
+    self.employeeService = nil
+    self.employeeRepository = nil
+    self.equipmentService = nil
+    self.equipmentRepository = nil
+    self.exceptionService = nil
+    self.exceptionRepository = nil
+    self.activityService = nil
+    self.activityRepository = nil
+    self.auditService = nil
+    self.auditRepository = nil
+    self.analyticsService = nil
+    self.analyticsRepository = nil
+    self.idempotency = nil
+    self.recoveryRequired = false
+    self.recoveryWarnings = {}
+    if PortOps.Crane.Runtime and PortOps.Crane.Runtime.bootstrap == self then PortOps.Crane.Runtime = nil end
+    if PortOps.Runtime and PortOps.Runtime.Bootstrap == self then PortOps.Runtime = {} end
     self.ready = false
     self.eventsRegistered = false
+    for _, unsubscribe in ipairs(self.eventUnsubscribers or {}) do pcall(unsubscribe) end
+    self.eventUnsubscribers = {}
     return true
 end
 
@@ -153,6 +248,19 @@ end
 
 function Bootstrap:_reply(source, eventName, result)
     if type(TriggerClientEvent) == 'function' then TriggerClientEvent(eventName, sourceNumber(source), result) end
+end
+
+function Bootstrap:_registerExports()
+    if type(exports) ~= 'function' or not (PortOps.Api and PortOps.Api.Exports) then return true end
+    local failures = {}
+    for name, handler in pairs(PortOps.Api.Exports) do
+        if type(handler) == 'function' then
+            local ok, reason = pcall(exports, name, handler)
+            if not ok then failures[#failures + 1] = ('%s: %s'):format(tostring(name), tostring(reason)) end
+        end
+    end
+    if #failures > 0 then return false, 'API_EXPORT_REGISTRATION_FAILED: ' .. table.concat(failures, '; ') end
+    return true
 end
 
 function Bootstrap:_snapshotFor(craneId)
@@ -324,6 +432,7 @@ function Bootstrap:handleTokenIssue(source, craneId, sessionId, containerId, act
 end
 
 function Bootstrap:handleTokenConsume(source, token, craneId, sessionId, containerId, action, sessionToken, targetId)
+    if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
     if not PortOps.Crane.Validation.requiredIdentifier(token, 256) or not PortOps.Crane.Validation.requiredIdentifier(sessionToken, 256) then return PortOps.Errors.err('INPUT_INVALID', 'token credential is invalid') end
     local operatorId, identityError = self:_operator(source)
     if not operatorId then return identityError end
@@ -386,6 +495,52 @@ function Bootstrap:handleContainerStream(source, position, options)
     return self.streamingService:subscribe(source, authoritativePosition, options)
 end
 
+function Bootstrap:_authoritativePosition(source, proposed)
+    local authoritativePosition
+    if type(self.playerPositionResolver) == 'function' then
+        local ok, resolved = pcall(self.playerPositionResolver, source)
+        if ok and validPosition(resolved) then authoritativePosition = resolved end
+    elseif type(GetPlayerPed) == 'function' and type(GetEntityCoords) == 'function' then
+        local pedOk, ped = pcall(GetPlayerPed, sourceNumber(source))
+        if pedOk and ped and tonumber(ped) ~= 0 then
+            local coordsOk, coords = pcall(GetEntityCoords, ped)
+            if coordsOk and validPosition(coords) then authoritativePosition = { x = coords.x, y = coords.y, z = coords.z } end
+        end
+    end
+    if not authoritativePosition and type(self.playerPositionResolver) ~= 'function' and self.config and self.config.environment == 'development' and validPosition(proposed) then
+        authoritativePosition = { x = proposed.x, y = proposed.y, z = proposed.z }
+    end
+    return authoritativePosition
+end
+
+function Bootstrap:handleYardStream(source, position, options)
+    if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
+    if not self.yardService then return PortOps.Errors.err('YARD_UNAVAILABLE', 'yard service is unavailable') end
+    local authoritative = self:_authoritativePosition(source, position)
+    if not authoritative then return PortOps.Errors.err('STREAM_POSITION_INVALID', 'authoritative player position is unavailable') end
+    options = type(options) == 'table' and options or {}
+    local radius = math.min(math.max(tonumber(options.radius) or 90, 10), 200)
+    local result = self.yardService:list({ block = options.block })
+    if PortOps.Core.Result.isErr(result) then return PortOps.Errors.err(result.error.code, result.error.message, result.error.details) end
+    local descriptors = {}
+    for _, descriptor in ipairs(result.data or {}) do
+        local transform = descriptor.transform or {}
+        local dx, dy, dz = (transform.x or 0) - authoritative.x, (transform.y or 0) - authoritative.y, (transform.z or 0) - authoritative.z
+        if math.sqrt(dx * dx + dy * dy + dz * dz) <= radius then descriptors[#descriptors + 1] = descriptor end
+    end
+    return PortOps.Errors.ok(descriptors, { requestId = options.requestId })
+end
+
+function Bootstrap:handleYardPlacement(source, containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion)
+    if not self.ready then return PortOps.Errors.err('RESOURCE_NOT_READY', 'resource is not ready') end
+    if not self.placementService then return PortOps.Errors.err('YARD_UNAVAILABLE', 'placement service is unavailable') end
+    if type(containerId) ~= 'string' or type(slotId) ~= 'string' then return PortOps.Errors.err('INPUT_INVALID', 'placement identifiers are invalid') end
+    local owner = self:_operatorId(source)
+    if not owner then return PortOps.Errors.err('FRAMEWORK_IDENTITY_UNAVAILABLE', 'framework identity is unavailable') end
+    if ownerId ~= nil and tostring(ownerId) ~= tostring(owner) then return PortOps.Errors.err('NOT_AUTHORIZED', 'placement owner mismatch') end
+    return self.placementService:place(containerId, slotId, physical, owner, expectedVersion, expectedSlotVersion)
+end
+
 function Bootstrap:_registerEvents()
     if self.eventsRegistered or type(RegisterNetEvent) ~= 'function' or type(AddEventHandler) ~= 'function' then return end
     self.eventsRegistered = true
@@ -400,7 +555,7 @@ function Bootstrap:_registerEvents()
     end)
     RegisterNetEvent('portops:crane:snapshot')
     AddEventHandler('portops:crane:snapshot', function(craneId, snapshot)
-        runtime.handleSnapshot(source, craneId, snapshot)
+        self:_reply(source, 'portops:crane:snapshot:result', runtime.handleSnapshot(source, craneId, snapshot))
     end)
     RegisterNetEvent('portops:crane:observe')
     AddEventHandler('portops:crane:observe', function(craneId)
@@ -421,6 +576,14 @@ function Bootstrap:_registerEvents()
     RegisterNetEvent('portops:containers:stream:request')
     AddEventHandler('portops:containers:stream:request', function(position, options)
         self:_reply(source, 'portops:containers:stream:response', runtime.handleContainerStream(source, position, options))
+    end)
+    RegisterNetEvent('portops:yard:stream:request')
+    AddEventHandler('portops:yard:stream:request', function(position, options)
+        self:_reply(source, 'portops:yard:stream:response', runtime.handleYardStream(source, position, options))
+    end)
+    RegisterNetEvent('portops:yard:place')
+    AddEventHandler('portops:yard:place', function(containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion)
+        self:_reply(source, 'portops:yard:place:result', runtime.handleYardPlacement(source, containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion))
     end)
     AddEventHandler('playerDropped', function()
         runtime.handleDisconnect(source)
@@ -451,6 +614,47 @@ function Bootstrap:run()
     local ContainerStateMachine = PortOps.State and PortOps.State.ContainerStateMachine
     local ContainerService = PortOps.Services and PortOps.Services.Container
     local StreamingService = PortOps.Services and PortOps.Services.Streaming
+    local YardDomain = PortOps.Domain and PortOps.Domain.Yard
+    local YardRepository = PortOps.Repositories and PortOps.Repositories.Yard
+    local YardService = PortOps.Services and PortOps.Services.Yard
+    local PlacementService = PortOps.Services and PortOps.Services.Placement
+    local MoveDomain = PortOps.Domain and PortOps.Domain.Move
+    local MoveRepository = PortOps.Repositories and PortOps.Repositories.Move
+    local MoveStateMachine = PortOps.State and PortOps.State.MoveStateMachine
+    local MoveStepStateMachine = PortOps.State and PortOps.State.MoveStepStateMachine
+    local MoveService = PortOps.Services and PortOps.Services.Move
+    local MoveAssignment = PortOps.Services and (PortOps.Services.MoveAssignment or PortOps.Services.Assignment)
+    local VesselRepository = PortOps.Repositories and PortOps.Repositories.Vessel
+    local VesselCallRepository = PortOps.Repositories and PortOps.Repositories.VesselCall
+    local VesselCallStateMachine = PortOps.State and PortOps.State.VesselCall
+    local VesselCallService = PortOps.Services and PortOps.Services.VesselCall
+    local BerthService = PortOps.Services and PortOps.Services.Berth
+    local ManifestRepository = PortOps.Repositories and PortOps.Repositories.Manifest
+    local ManifestService = PortOps.Services and PortOps.Services.Manifest
+    local DischargePlanningService = PortOps.Services and PortOps.Services.DischargePlanning
+    local GateRepository = PortOps.Repositories and PortOps.Repositories.Gate
+    local GateService = PortOps.Services and PortOps.Services.Gate
+    local CustomsRepository = PortOps.Repositories and PortOps.Repositories.Customs
+    local CustomsRiskService = PortOps.Services and PortOps.Services.CustomsRisk
+    local CustomsService = PortOps.Services and PortOps.Services.Customs
+    local EmployeeRepository = PortOps.Repositories and PortOps.Repositories.Employee
+    local EmployeeService = PortOps.Services and PortOps.Services.Employee
+    local EquipmentRepository = PortOps.Repositories and PortOps.Repositories.Equipment
+    local EquipmentService = PortOps.Services and PortOps.Services.Equipment
+    local ExceptionRepository = PortOps.Repositories and PortOps.Repositories.Exception
+    local ExceptionDomain = PortOps.Domain and PortOps.Domain.Exception
+    local ExceptionService = PortOps.Services and PortOps.Services.Exceptions
+    local ActivityRepository = PortOps.Repositories and PortOps.Repositories.Activity
+    local ActivityService = PortOps.Services and PortOps.Services.Activity
+    local AuditRepository = PortOps.Repositories and PortOps.Repositories.Audit
+    local AuditService = PortOps.Services and PortOps.Services.Audit
+    local AnalyticsRepository = PortOps.Repositories and PortOps.Repositories.Analytics
+    local AnalyticsService = PortOps.Services and PortOps.Services.Analytics
+    local CraneService = PortOps.Services and PortOps.Services.Crane
+    local FieldOperationService = PortOps.Services and PortOps.Services.FieldOperation
+    local RecoveryService = PortOps.Services and PortOps.Services.Recovery
+    local CraneTokens = PortOps.Security and PortOps.Security.CraneTokens
+    local Idempotency = PortOps.Core.Idempotency
     local missingModules = {}
     local requiredModules = {
         { name = 'Registry', value = Registry },
@@ -467,7 +671,47 @@ function Bootstrap:run()
         { name = 'ContainerStateMachine', value = ContainerStateMachine },
         { name = 'ContainerService', value = ContainerService },
         { name = 'StreamingService', value = StreamingService },
-        { name = 'EventBus', value = self.events }
+        { name = 'YardDomain', value = YardDomain },
+        { name = 'YardRepository', value = YardRepository },
+        { name = 'YardService', value = YardService },
+        { name = 'PlacementService', value = PlacementService },
+        { name = 'MoveDomain', value = MoveDomain },
+        { name = 'MoveRepository', value = MoveRepository },
+        { name = 'MoveStateMachine', value = MoveStateMachine },
+        { name = 'MoveStepStateMachine', value = MoveStepStateMachine },
+        { name = 'MoveService', value = MoveService },
+        { name = 'MoveAssignment', value = MoveAssignment },
+        { name = 'VesselRepository', value = VesselRepository },
+        { name = 'VesselCallRepository', value = VesselCallRepository },
+        { name = 'VesselCallStateMachine', value = VesselCallStateMachine },
+        { name = 'VesselCallService', value = VesselCallService },
+        { name = 'BerthService', value = BerthService },
+        { name = 'ManifestRepository', value = ManifestRepository },
+        { name = 'ManifestService', value = ManifestService },
+        { name = 'DischargePlanningService', value = DischargePlanningService },
+        { name = 'GateRepository', value = GateRepository },
+        { name = 'GateService', value = GateService },
+        { name = 'CustomsRepository', value = CustomsRepository },
+        { name = 'CustomsRiskService', value = CustomsRiskService },
+        { name = 'CustomsService', value = CustomsService },
+        { name = 'EmployeeRepository', value = EmployeeRepository },
+        { name = 'EmployeeService', value = EmployeeService },
+        { name = 'EquipmentRepository', value = EquipmentRepository },
+        { name = 'EquipmentService', value = EquipmentService },
+        { name = 'ExceptionRepository', value = ExceptionRepository },
+        { name = 'ExceptionDomain', value = ExceptionDomain },
+        { name = 'ExceptionService', value = ExceptionService },
+        { name = 'ActivityRepository', value = ActivityRepository },
+        { name = 'ActivityService', value = ActivityService },
+        { name = 'AuditRepository', value = AuditRepository },
+        { name = 'AuditService', value = AuditService },
+        { name = 'AnalyticsRepository', value = AnalyticsRepository },
+        { name = 'AnalyticsService', value = AnalyticsService },
+        { name = 'CraneService', value = CraneService },
+        { name = 'FieldOperationService', value = FieldOperationService },
+        { name = 'RecoveryService', value = RecoveryService },
+        { name = 'EventBus', value = self.events },
+        { name = 'Idempotency', value = Idempotency }
     }
     for _, required in ipairs(requiredModules) do
         if not required.value then missingModules[#missingModules + 1] = required.name end
@@ -476,6 +720,8 @@ function Bootstrap:run()
         table.sort(missingModules)
         return self:_fail(PortOps.Enums.ResourceStage.SERVICES, 'required modules are missing: ' .. table.concat(missingModules, ', '))
     end
+    local yardConfigResult = YardDomain.validateConfig(self.config.yard or {})
+    if Result.isErr(yardConfigResult) then return self:_fail(PortOps.Enums.ResourceStage.CONFIG, yardConfigResult) end
     local registry, registryReason = Registry.new(self.config)
     if not registry then return self:_fail(PortOps.Enums.ResourceStage.CONFIG, registryReason) end
     self.registry = registry
@@ -486,6 +732,7 @@ function Bootstrap:run()
     local databaseValid, databaseValidationReason = Database.validate(database)
     if not databaseValid then return self:_fail(PortOps.Enums.ResourceStage.DB, databaseValidationReason) end
     self.database = database
+    self.idempotency = Idempotency.new({ clock = clockMs, database = self.database })
     local migrationRunner = Migrations.new({ database = database, migrations = self.config.database.migrations })
     local migrationResult = migrationRunner:run()
     if Result.isErr(migrationResult) then return self:_fail(PortOps.Enums.ResourceStage.DB, migrationResult) end
@@ -511,6 +758,31 @@ function Bootstrap:run()
         logger = self.logger
     })
     self.streamingService = StreamingService.new({ repository = self.containerRepository, clock = clockMs })
+    self.yardRepository = YardRepository.new({ config = self.config.yard or PortOps.Config.yard, database = self.database, clock = clockMs })
+    if self.yardRepository.startupError then return self:_fail(PortOps.Enums.ResourceStage.SERVICES, self.yardRepository.startupError) end
+    self.yardService = YardService.new({ repository = self.yardRepository, containerRepository = self.containerRepository, clock = clockMs })
+    self.placementService = PlacementService.new({
+        yardService = self.yardService,
+        containerRepository = self.containerRepository,
+        containerService = self.containerService,
+        clock = clockMs,
+        limits = (self.config.yard and self.config.yard.snap) or { distance = 1.5, vertical = 0.5, heading = 5.0 }
+    })
+    self.moveRepository = MoveRepository.new({ database = self.database, clock = clockMs })
+    self.moveStateMachine = MoveStateMachine.new({ clock = clockMs })
+    self.moveStepStateMachine = MoveStepStateMachine.new({ clock = clockMs })
+    self.moveAssignment = MoveAssignment.new({ repository = self.moveRepository, stateMachine = self.moveStateMachine, framework = self.framework, clock = clockMs })
+    self.moveService = MoveService.new({
+        repository = self.moveRepository,
+        stateMachine = self.moveStateMachine,
+        stepStateMachine = self.moveStepStateMachine,
+        containerService = self.containerService,
+        yardService = self.yardService,
+        assignmentService = self.moveAssignment,
+        events = self.events,
+        logger = self.logger,
+        clock = clockMs
+    })
     self.sessions = Sessions.new({ ttlMs = self.config.crane.sessionTtlMs, onInvalidated = function(session, reason) self:_onSessionInvalidated(session, reason) end })
     self.tokens = Tokens.new({
         ttlMs = self.config.crane.actionTokenTtlMs,
@@ -519,6 +791,51 @@ function Bootstrap:run()
         issueWindowMs = self.config.crane.actionTokenIssueWindowMs,
         replayLog = function(event) if type(print) == 'function' and self.config.environment ~= 'production' then print(('[PortOps] token rejected: %s'):format(tostring(event.reason))) end end
     })
+    self.vesselRepository = VesselRepository.new({ database = self.database })
+    self.vesselCallRepository = VesselCallRepository.new({ database = self.database })
+    self.vesselCallStateMachine = VesselCallStateMachine.new({ clock = clockMs })
+    self.vesselCallService = VesselCallService.new({ repository = self.vesselCallRepository, machine = self.vesselCallStateMachine })
+    self.berthService = BerthService.new({ slots = PortOps.Config.berthSlots or {}, callRepository = self.vesselCallRepository, clock = clockMs })
+    if self.berthService.startupError then return self:_fail(PortOps.Enums.ResourceStage.SERVICES, self.berthService.startupError) end
+    self.manifestRepository = ManifestRepository.new({ database = self.database })
+    self.manifestService = ManifestService.new({ repository = self.manifestRepository, containerService = self.containerService })
+    self.dischargePlanningService = DischargePlanningService.new({ manifestService = self.manifestService, yardService = self.yardService, moveService = self.moveService, clock = clockMs })
+    self.customsRepository = CustomsRepository.new()
+    self.customsRiskService = CustomsRiskService.new(self.config.customs or PortOps.CustomsConfig or {})
+    self.customsService = CustomsService.new({ repository = self.customsRepository, caseDomain = PortOps.Domain.CustomsCase })
+    self.gateRepository = GateRepository.new({ database = self.database })
+    self.gateService = GateService.new({ repository = self.gateRepository, containerService = self.containerService, customsService = self.customsService, clock = clockMs })
+    self.employeeRepository = EmployeeRepository.new()
+    self.employeeService = EmployeeService.new({ repository = self.employeeRepository })
+    self.equipmentRepository = EquipmentRepository.new()
+    self.equipmentService = EquipmentService.new({ repository = self.equipmentRepository, employeeService = self.employeeService })
+    self.exceptionRepository = ExceptionRepository.new()
+    self.exceptionService = ExceptionService.new({ repository = self.exceptionRepository, domain = ExceptionDomain })
+    self.activityRepository = ActivityRepository.new()
+    self.activityService = ActivityService.new({ repository = self.activityRepository })
+    self.auditRepository = AuditRepository.new()
+    self.auditService = AuditService.new({ repository = self.auditRepository })
+    self.analyticsRepository = AnalyticsRepository.new()
+    self.analyticsService = AnalyticsService.new({ repository = self.analyticsRepository })
+    if CraneService and CraneTokens then
+        self.craneService = CraneService.new({ sessions = self.sessions, tokens = CraneTokens.new({ clock = clockMs, ttlMs = self.config.crane.actionTokenTtlMs }), moves = self.moveService, containers = self.containerService, clock = clockMs })
+    end
+    self.recoveryService = RecoveryService.new({ containers = self.containerService, yard = self.yardService, moves = self.moveService, clock = clockMs })
+    local recoveryResult = self.recoveryService:restore()
+    if Result.isErr(recoveryResult) then return self:_fail(PortOps.Enums.ResourceStage.SERVICES, recoveryResult) end
+    self.recoveryRequired = recoveryResult.data and recoveryResult.data.requiresRecovery == true or false
+    self.recoveryWarnings = recoveryResult.data and recoveryResult.data.warnings or {}
+    if recoveryResult.data and not recoveryResult.data.coherent and self.logger and type(self.logger.warn) == 'function' then
+        self.logger:warn('recovery completed with warnings', recoveryResult.data)
+    end
+    self.fieldOperationService = FieldOperationService.new({ moveService = self.moveService, containerService = self.containerService, placementService = self.placementService })
+    for _, eventName in ipairs({ 'portops:containerCreated', 'portops:containerTransitioned', 'portops:moveCreated', 'portops:moveTransitioned' }) do
+        local _, unsubscribe = self.events:on(eventName, function(payload)
+            local entityId = payload and (payload.id or (payload.container and payload.container.id))
+            self.activityService:record(eventName, entityId, payload or {})
+        end)
+        if type(unsubscribe) == 'function' then self.eventUnsubscribers[#self.eventUnsubscribers + 1] = unsubscribe end
+    end
     self.recovery = Recovery.new({ registry = self.registry, sessions = self.sessions, tokens = self.tokens, notify = function(craneId, state, reason)
         for observerSource in pairs(self.observers[craneId] or {}) do
             if type(TriggerClientEvent) == 'function' then
@@ -565,6 +882,8 @@ function Bootstrap:run()
         handleTokenIssue = function(source, craneId, sessionId, containerId, action, sessionToken, targetId) return self:handleTokenIssue(source, craneId, sessionId, containerId, action, sessionToken, targetId) end,
         handleTokenConsume = function(source, token, craneId, sessionId, containerId, action, sessionToken, targetId) return self:handleTokenConsume(source, token, craneId, sessionId, containerId, action, sessionToken, targetId) end,
         handleContainerStream = function(source, position, options) return self:handleContainerStream(source, position, options) end,
+        handleYardStream = function(source, position, options) return self:handleYardStream(source, position, options) end,
+        handleYardPlacement = function(source, containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion) return self:handleYardPlacement(source, containerId, slotId, physical, ownerId, expectedVersion, expectedSlotVersion) end,
         handleDisconnect = function(source) return self:handleDisconnect(source) end
     }
     PortOps.Crane.RegistryInstance = self.registry
@@ -578,8 +897,48 @@ function Bootstrap:run()
     PortOps.Runtime.ContainerStateMachine = self.containerStateMachine
     PortOps.Runtime.ContainerService = self.containerService
     PortOps.Runtime.StreamingService = self.streamingService
+    PortOps.Runtime.YardRepository = self.yardRepository
+    PortOps.Runtime.YardService = self.yardService
+    PortOps.Runtime.PlacementService = self.placementService
+    PortOps.Runtime.MoveRepository = self.moveRepository
+    PortOps.Runtime.MoveStateMachine = self.moveStateMachine
+    PortOps.Runtime.MoveStepStateMachine = self.moveStepStateMachine
+    PortOps.Runtime.MoveAssignment = self.moveAssignment
+    PortOps.Runtime.MoveService = self.moveService
+    PortOps.Runtime.CraneService = self.craneService
+    PortOps.Runtime.FieldOperationService = self.fieldOperationService
+    PortOps.Runtime.RecoveryService = self.recoveryService
+    PortOps.Runtime.VesselRepository = self.vesselRepository
+    PortOps.Runtime.VesselCallRepository = self.vesselCallRepository
+    PortOps.Runtime.VesselCallStateMachine = self.vesselCallStateMachine
+    PortOps.Runtime.VesselCallService = self.vesselCallService
+    PortOps.Runtime.BerthService = self.berthService
+    PortOps.Runtime.ManifestRepository = self.manifestRepository
+    PortOps.Runtime.ManifestService = self.manifestService
+    PortOps.Runtime.DischargePlanningService = self.dischargePlanningService
+    PortOps.Runtime.GateRepository = self.gateRepository
+    PortOps.Runtime.GateService = self.gateService
+    PortOps.Runtime.CustomsRepository = self.customsRepository
+    PortOps.Runtime.CustomsRiskService = self.customsRiskService
+    PortOps.Runtime.CustomsService = self.customsService
+    PortOps.Runtime.EmployeeRepository = self.employeeRepository
+    PortOps.Runtime.EmployeeService = self.employeeService
+    PortOps.Runtime.EquipmentRepository = self.equipmentRepository
+    PortOps.Runtime.EquipmentService = self.equipmentService
+    PortOps.Runtime.ExceptionRepository = self.exceptionRepository
+    PortOps.Runtime.ExceptionService = self.exceptionService
+    PortOps.Runtime.ActivityRepository = self.activityRepository
+    PortOps.Runtime.ActivityService = self.activityService
+    PortOps.Runtime.AuditRepository = self.auditRepository
+    PortOps.Runtime.AuditService = self.auditService
+    PortOps.Runtime.AnalyticsRepository = self.analyticsRepository
+    PortOps.Runtime.AnalyticsService = self.analyticsService
+    PortOps.Runtime.Idempotency = self.idempotency
+    PortOps.Runtime.RecoveryRequired = self.recoveryRequired
     PortOps.Runtime.Logger = self.logger
     PortOps.Runtime.Events = self.events
+    local exportsReady, exportsReason = self:_registerExports()
+    if not exportsReady then return self:_fail(PortOps.Enums.ResourceStage.SERVICES, exportsReason) end
     self:_registerEvents()
     if self.config.environment == 'development' and type(RegisterCommand) == 'function' then
         RegisterCommand('portops_status', function()

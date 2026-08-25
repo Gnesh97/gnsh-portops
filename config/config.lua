@@ -6,7 +6,7 @@ local function vector(x, y, z)
 end
 
 PortOps.Config = {
-    version = '0.1.0',
+    version = '0.3.0',
     environment = 'development',
     logging = { level = 'info' },
     framework = { provider = 'standalone' },
@@ -16,7 +16,17 @@ PortOps.Config = {
         migrations = {
             { version = 1, path = 'sql/001_initial.sql' },
             { version = 2, path = 'sql/002_indexes.sql' },
-            { version = 3, path = 'sql/003_containers.sql' }
+            { version = 3, path = 'sql/003_containers.sql' },
+            { version = 4, path = 'sql/004_yard.sql' },
+            { version = 5, path = 'sql/005_moves.sql' },
+            { version = 6, path = 'sql/006_vessels.sql' },
+            { version = 7, path = 'sql/007_manifests.sql' },
+            { version = 8, path = 'sql/008_gate.sql' },
+            { version = 9, path = 'sql/009_customs.sql' },
+            { version = 10, path = 'sql/010_workforce.sql' },
+            { version = 11, path = 'sql/011_equipment.sql' },
+            { version = 12, path = 'sql/012_audit.sql' },
+            { version = 13, path = 'sql/013_idempotency.sql' }
         }
     },
     defaults = {

@@ -26,7 +26,17 @@ function Service:transition(ref,target,expectedVersion,context,guard)
     local next=self.stateMachine:transition(current.data,target,context,guard); if Result.isErr(next) then return next end
     return self:_save(next.data,current.data,expectedVersion)
 end
-function Service:reserve(ref,expected,ctx) return self:transition(ref,'RESERVED',expected,ctx) end
+function Service:reserve(ref,expected,ctx)
+    local context=Move.copy(ctx or {}); local reservation
+    if self.yardService and context.slotId and context.ownerId and context.container then
+        reservation=self.yardService:reserve(context.container,context.slotId,context.ownerId,context.ttlMs)
+        if Result.isErr(reservation) then return reservation end
+        context.reservation=reservation.data
+    end
+    local transitioned=self:transition(ref,'RESERVED',expected,context)
+    if Result.isErr(transitioned) and reservation then self.yardService:release(context.slotId,context.ownerId) end
+    return transitioned
+end
 function Service:ready(ref,expected,ctx) return self:transition(ref,'READY',expected,ctx) end
 function Service:claim(ref,expected,actor,ctx) local context=Move.copy(ctx or {}); context.actor=Move.copy(actor); return self:transition(ref,'CLAIMED',expected,context) end
 function Service:start(ref,expected,ctx) return self:transition(ref,'IN_PROGRESS',expected,ctx) end

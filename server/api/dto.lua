@@ -1,13 +1,22 @@
 -- Stable public DTO boundary. Never return database rows or framework objects.
 PortOps = PortOps or {}; PortOps.Api = PortOps.Api or {}
 local DTO = {}
-local SENSITIVE = { database=true, framework=true, driver=true, password=true, secret=true, token=true, sessionToken=true }
+local SENSITIVE = {
+    database=true, framework=true, driver=true, password=true, passwordhash=true,
+    secret=true, token=true, sessiontoken=true, accesstoken=true, refreshtoken=true,
+    apikey=true, accesskey=true, authorization=true, bearer=true, privatekey=true,
+    signingkey=true, encryptionkey=true, clientsecret=true, credential=true,
+    credentials=true, passphrase=true, cookie=true, setcookie=true, idempotencykey=true
+}
+local function normalizedKey(key)
+    return tostring(key):gsub('[^%a%d]', ''):lower()
+end
 local function copy(value, seen)
     if type(value) ~= 'table' then return value end
     seen = seen or {}; if seen[value] then return seen[value] end
     local out = {}; seen[value] = out
     for key, child in pairs(value) do
-        if not SENSITIVE[tostring(key)] and (type(key) ~= 'number' or key <= 128) then out[copy(key, seen)] = copy(child, seen) end
+        if not SENSITIVE[normalizedKey(key)] and (type(key) ~= 'number' or key <= 128) then out[copy(key, seen)] = copy(child, seen) end
     end
     return out
 end

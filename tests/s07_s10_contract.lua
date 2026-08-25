@@ -1,5 +1,5 @@
 PortOps={}; dofile('server/core/result.lua')
-dofile('server/security/crane_tokens.lua'); dofile('server/services/crane_service.lua')
+dofile('server/security/crane_tokens.lua'); dofile('server/services/crane_service.lua'); dofile('server/services/field_operation_service.lua')
 dofile('server/domain/vessel.lua'); dofile('server/state/vessel_call_state_machine.lua'); dofile('server/services/vessel_call_service.lua')
 dofile('server/services/berth_service.lua'); dofile('server/services/manifest_service.lua')
 dofile('server/domain/gate_appointment.lua'); dofile('server/services/gate_service.lua')
@@ -15,5 +15,7 @@ local machine=PortOps.State.VesselCall.new({clock=function() return now end}); l
 ok(calls:create({id='call-1',status='PLANNED'}),'vessel call create failed'); ok(calls:transition('call-1','ARRIVAL_EXPECTED'),'vessel call transition failed')
 local berths=PortOps.Services.Berth.new({}); ok(berths:reserve('b1','call-1'),'berth reserve failed'); assert(not berths:reserve('b1','call-2').ok,'berth conflict accepted')
 local manifests=PortOps.Services.Manifest.new({}); ok(manifests:import({id='man-1',items={{containerId='c1'},{containerId='c2'}}}),'manifest import failed'); assert(#manifests:materialize('man-1').data==2,'manifest materialization failed')
-local gate=PortOps.Services.Gate.new({}); ok(gate:book({id='a1',containerId='c1',windowStart=1,windowEnd=2}),'appointment booking failed'); ok(gate:transition('a1','ARRIVED'),'appointment arrival failed'); ok(gate:transition('a1','PICKUP_CLAIMED'),'pickup claim failed'); assert(not gate:transition('a1','PICKUP_CLAIMED').ok,'duplicate pickup accepted')
+local gate=PortOps.Services.Gate.new({clock=function() return 1.5 end}); ok(gate:book({id='a1',containerId='c1',windowStart=1,windowEnd=2}),'appointment booking failed'); ok(gate:transition('a1','ARRIVED'),'appointment arrival failed'); ok(gate:transition('a1','PICKUP_CLAIMED'),'pickup claim failed'); assert(not gate:transition('a1','PICKUP_CLAIMED').ok,'duplicate pickup accepted')
+local fakeMoves={get=function() return PortOps.Core.Result.ok({containerId='c1'}) end,completeStep=function() return PortOps.Core.Result.ok({completed=true}) end}
+local field=PortOps.Services.FieldOperation.new({moveService=fakeMoves}); assert(not field:trailerHandoff('move-1','step-1','c2',1,1).ok,'field handoff accepted wrong container'); assert(field:trailerHandoff('move-1','step-1','c1',1,1).ok,'field handoff rejected matching container')
 print('s07_s10_contract: PASS')
