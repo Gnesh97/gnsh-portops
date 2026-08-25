@@ -1,0 +1,5 @@
+PortOps={Core={}}; dofile('server/core/result.lua'); dofile('server/domain/move.lua')
+local r=PortOps.Domain.Move.new({moveNumber='M-001',containerId='ctr-1',from={type='VESSEL',ref='v1'},to={type='YARD_SLOT',ref='A-01'},steps={{kind='CRANE'},{kind='YARD'}}})
+assert(r.ok and r.data.steps[1].status=='READY' and r.data.steps[2].status=='PENDING')
+assert(not PortOps.Domain.Move.new({from={type='VESSEL'},to={type='YARD_SLOT'}}).ok)
+print('move-domain-contract: PASS')

@@ -1,0 +1,5 @@
+PortOps={Core={}}; dofile('server/core/result.lua'); dofile('server/domain/move.lua'); dofile('server/repositories/move_repository.lua')
+local db={provider='memory'}; local repo=PortOps.Repositories.Move.new({database=db,idGenerator=function() return 'm-1' end})
+local r=repo:create({containerId='c1',from={type='VESSEL'},to={type='YARD_SLOT'},moveNumber='M1',steps={{kind='CRANE'}}}); assert(r.ok)
+assert(repo:getByNumber('M1').ok); local n=PortOps.Domain.Move.copy(r.data); n.status='RESERVED'; n.version=2; assert(repo:update(n,1).ok); assert(repo:update(n,1).error.code=='MOVE_VERSION_CONFLICT')
+print('move-repository-contract: PASS')

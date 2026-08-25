@@ -1,0 +1,4 @@
+PortOps={Core={}}; dofile('server/core/result.lua'); dofile('server/domain/move.lua'); dofile('server/repositories/move_repository.lua'); dofile('server/state/move_state_machine.lua'); dofile('server/services/move_service.lua')
+local repo=PortOps.Repositories.Move.new({database={provider='memory'}}); local sm=PortOps.State.MoveStateMachine.new({clock=function() return 20 end}); local s=PortOps.Services.Move.new({repository=repo,stateMachine=sm,clock=function() return 20 end})
+local c=s:create({containerId='c',from={type='VESSEL'},to={type='YARD_SLOT'},steps={{kind='CRANE'},{kind='YARD'}}}); assert(c.ok); local r=s:completeStep(c.data.id,'step-2',1); assert(not r.ok and r.error.code=='MOVE_PREREQUISITE_REQUIRED'); local x=s:completeStep(c.data.id,'step-1',1); assert(x.ok); local y=s:completeStep(c.data.id,'step-1',x.data.version); assert(y.ok and y.meta.idempotent)
+print('move-service-contract: PASS')

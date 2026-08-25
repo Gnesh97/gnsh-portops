@@ -23,10 +23,13 @@ All notable changes to PortOps are documented in this file.
 - Improved bootstrap diagnostics so missing foundation modules are named in the startup failure message.
 - Added S04 persistent container core: schema migration 003, validated logical container domain, CRUD repository, optimistic version checks, lifecycle state machine, transition guards, safe DTOs, and activity events.
 - Added S04 ISO visual resolver and nearby-only container streaming with bounded descriptors, interest-radius hysteresis, unload/re-entry reconciliation, and client/server bootstrap wiring.
+- Added S05 Yard Engine: config-driven canonical slots, ISO/zone compatibility, owner-bound TTL reservations, versioned snap placement, yard-cell streaming, and logical container location commits.
+- Added S06 Move Order Engine: transactional move/step persistence, ordered state machines, optimistic versions, prerequisite/idempotent completion, role/availability assignment, and recovery/block hooks.
+- Added S15–S19 release surfaces: public DTO/API boundaries, idempotency/events, framework scenario contracts, security/load/release docs, CI, and release builder.
 
 ### Notes
 
 - The master development plan has been received and reviewed.
 - S01 remains a historical development-only client prototype and is excluded from the root production manifest.
-- Yard/berth transitions, customs/gate workflows, and visual crane controls remain explicitly deferred to their planned phases; the logical container persistence phase is now complete.
+- Vessel, berth, manifest, MDT, gate, customs, workforce, equipment, exception, and analytics workflows remain behind their planned phase integrations; S05/S06 foundations are active in the development profile.
 - Root Lua syntax and offline contracts pass; FiveM runtime acceptance now includes the live `READY` bootstrap log and the documented development smoke commands.
