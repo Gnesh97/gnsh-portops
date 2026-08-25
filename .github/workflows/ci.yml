@@ -1,0 +1,22 @@
+name: PortOps CI
+on: [push, pull_request]
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Lua
+        run: sudo apt-get update && sudo apt-get install -y lua5.4
+      - name: Validate manifest and Lua syntax
+        shell: bash
+        run: |
+          test -f fxmanifest.lua
+          ! grep -RInE "(password|secret|api[_-]?key|token)[[:space:]]*=[[:space:]]*['\"]" --include='*.lua' --exclude-dir=.git .
+          find . -name '*.lua' -not -path './tests/*' -print0 | xargs -0 -n1 luac5.4 -p
+      - name: Run contract tests
+        shell: bash
+        run: |
+          set -e
+          for test in tests/*_contract.lua; do lua5.4 "$test"; done
+      - name: Build release artifact
+        run: python3 scripts/build_release.py --output "${RUNNER_TEMP}/gnsh-portops-release.zip"

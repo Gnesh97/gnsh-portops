@@ -1,0 +1,15 @@
+-- Focused abuse regression contract for server-authoritative boundaries.
+PortOps = {}
+dofile('shared/errors.lua'); dofile('server/core/result.lua')
+dofile('server/security/crane_tokens.lua')
+local now = 1000; local tokens = PortOps.Security.CraneTokens.new({ clock = function() return now end, ttlMs = 100 })
+local token = assert(tokens:issue('s1', 'm1', 'c1', 'attach'))
+local ok = tokens:consume(token, 's1', 'm1', 'c1', 'attach'); assert(ok, 'valid token rejected')
+local replay = tokens:consume(token, 's1', 'm1', 'c1', 'attach'); assert(not replay, 'token replay accepted')
+local expiredToken = assert(tokens:issue('s1', 'm1', 'c1', 'attach')); now = 1200; local expired = tokens:consume(expiredToken, 's1', 'm1', 'c1', 'attach'); assert(not expired, 'expired token accepted')
+dofile('config/yard.lua'); dofile('server/domain/yard.lua'); dofile('server/core/reservations.lua'); dofile('server/repositories/yard_repository.lua'); dofile('server/services/yard_service.lua')
+local yard = PortOps.Repositories.Yard.new({ config = PortOps.Config.yard, clock = function() return 0 end }); local yardService = PortOps.Services.Yard.new({ repository = yard })
+local container = { id = 'c1', isoType = '40GP', cargo = {} }; assert(yardService:reserve(container, 'C-14-03-1', 'move-1').ok)
+assert(not yardService:reserve(container, 'C-14-03-1', 'move-2').ok, 'second reservation won race')
+assert(not yardService:occupy(container, 'C-14-03-1', 'move-2').ok, 'wrong reservation owner occupied slot')
+print('security_abuse_contract: PASS')
