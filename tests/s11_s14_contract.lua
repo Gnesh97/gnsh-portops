@@ -1,0 +1,9 @@
+PortOps={Core={Result={}}}; PortOps.Core.Result.ok=function(d)return {ok=true,data=d}end
+dofile('server/domain/customs_case.lua'); dofile('server/repositories/customs_repository.lua'); dofile('server/services/customs_risk_service.lua'); dofile('server/services/customs_service.lua')
+local repo=PortOps.Repositories.Customs.new(); local risk=PortOps.Services.CustomsRisk.new({randomSampleRate=1}); local decision=risk:assess({origin='X',manifestAnomaly=true,randomSample=true}); assert(decision.sampled and #decision.reasons>0)
+local svc=PortOps.Services.Customs.new({repository=repo,caseDomain=PortOps.Domain.CustomsCase}); local c=assert(svc:open('ctr-1',decision)); assert(svc:transition(c.id,'HOLD','officer')); assert(not svc:canGateOut({customs={status='HOLD'}}))
+dofile('server/domain/exception.lua'); dofile('server/repositories/employee_repository.lua'); dofile('server/repositories/equipment_repository.lua'); dofile('server/services/employee_service.lua'); dofile('server/services/equipment_service.lua'); dofile('server/services/exception_service.lua')
+local er=PortOps.Repositories.Employee.new(); local es=PortOps.Services.Employee.new({repository=er}); assert(es:upsert('e1',{available=true})); assert(es:certify('e1','crane',os.time()*1000+10000)); assert(es:eligible('e1','crane'))
+local qr=PortOps.Repositories.Equipment.new(); local qs=PortOps.Services.Equipment.new({repository=qr}); assert(qs:register({id='q1',type='crane'})); assert(qs:assign('q1','e1','crane')); assert(qs:fault('q1','hydraulic'))
+local exr={records={}}; function exr:save(v)self.records[v.id]=v;return v end;function exr:get(id)return self.records[id]end; local xs=PortOps.Services.Exceptions.new({repository=exr,domain=PortOps.Domain.Exception}); local x=assert(xs:misroute('ctr-1',{})); assert(xs:resolve(x.id,'e1').status=='RESOLVED')
+print('s11_s14_contract: ok')
